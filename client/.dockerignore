@@ -1,0 +1,29 @@
+node_modules
+dist
+.vite
+.cache
+.turbo
+coverage
+
+# VCS
+.git
+.gitignore
+
+# Env and editor
+.env
+.env.*
+.DS_Store
+.vscode
+.idea
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Do not copy Docker/meta files into image
+Dockerfile
+Dockerfile.*
+.dockerignore
+
+

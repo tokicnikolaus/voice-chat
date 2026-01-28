@@ -1,0 +1,34 @@
+# LiveKit Server Configuration
+# For gaming cafe LAN deployment
+
+port: 7880
+
+rtc:
+  # UDP port range for WebRTC
+  port_range_start: 7882
+  port_range_end: 7892
+  # Disable external IP discovery - we'll use --node-ip flag instead
+  # This is required for LAN deployments where node_ip in config is ignored
+  use_external_ip: false
+  # TCP fallback port
+  tcp_port: 7881
+
+# API keys for token generation
+keys:
+  devkey: devkey-secret-key-for-livekit-minimum-32-characters-long-required
+
+# Room settings
+room:
+  # Enable room auto-creation
+  auto_create: true
+  # Max participants per room (can be overridden per room)
+  max_participants: 50
+
+# Logging
+logging:
+  level: info
+  # Set to debug for troubleshooting
+  # level: debug
+
+# Region (for display purposes)
+region: local

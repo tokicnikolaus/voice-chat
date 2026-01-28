@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # LiveKit SFU Server
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml --node-ip 192.168.1.154
+    restart: always
+    ports:
+      - "7880:7880"             # HTTP API
+      - "7881:7881"             # WebRTC TCP
+      - "7882-7892:7882-7892/udp" # WebRTC UDP range
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    networks:
+      - voice-chat-network
+
+  # Go Backend Server
+  server:
+    build: ./server
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_PORT=8080
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=devkey-secret-key-for-livekit-minimum-32-characters-long-required
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_ALLOWED_IPS=${ADMIN_ALLOWED_IPS:-}
+      - DEFAULT_ROOM_CAPACITY=15
+      - ROOM_CLEANUP_MINUTES=10
+      - LOG_LEVEL=info
+    depends_on:
+      - livekit
+    networks:
+      - voice-chat-network
+
+  # React Frontend
+  client:
+    build: ./client
+    restart: always
+    ports:
+      - "3000:80"   # HTTP (redirects to HTTPS)
+      - "3443:443"  # HTTPS
+    depends_on:
+      - server
+    networks:
+      - voice-chat-network
+
+networks:
+  voice-chat-network:
+    driver: bridge
