@@ -22,9 +22,10 @@ export function App() {
 
       <style>{`
         .app {
-          min-height: 100vh;
+          height: 100vh;
           display: flex;
           flex-direction: column;
+          overflow: hidden;
         }
 
         .main-content {
@@ -33,6 +34,8 @@ export function App() {
           align-items: center;
           justify-content: center;
           padding: 20px;
+          min-height: 0;
+          overflow: hidden;
         }
       `}</style>
     </div>

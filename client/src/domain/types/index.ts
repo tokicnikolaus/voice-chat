@@ -1,6 +1,9 @@
 // Voice modes
 export type VoiceMode = 'ptt' | 'vad';
 
+// Re-export chat types
+export * from './chat';
+
 // Room types
 export type RoomType = 'public' | 'private';
 
@@ -96,7 +99,10 @@ export type MessageType =
   | 'livekit_token'
   | 'user_kicked'
   | 'user_banned'
-  | 'room_closed';
+  | 'room_closed'
+  | 'chat_message'
+  | 'chat_history'
+  | 'chat_reaction';
 
 // WebSocket message
 export interface WebSocketMessage<T = unknown> {

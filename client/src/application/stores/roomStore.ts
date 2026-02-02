@@ -57,8 +57,8 @@ const initialState = {
   currentRoom: null,
   participants: [],
   availableRooms: [],
-  isMuted: true,
-  voiceMode: 'ptt' as VoiceMode,
+  isMuted: false,
+  voiceMode: 'vad' as VoiceMode,
   speakingParticipants: new Set<string>(),
   connectionQualities: new Map<string, number>(),
 };
@@ -90,7 +90,6 @@ export const useRoomStore = create<RoomState>((set, _get) => ({
       participants: [],
       speakingParticipants: new Set(),
       connectionQualities: new Map(),
-      isMuted: true,
     }),
 
   setAvailableRooms: (rooms) => set({ availableRooms: rooms }),

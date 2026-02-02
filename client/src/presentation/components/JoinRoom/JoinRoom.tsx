@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useWebSocket } from '@/application/hooks/useWebSocket';
 import { useRoomStore } from '@/application/stores/roomStore';
 import { useSettingsStore } from '@/application/stores/settingsStore';
-import type { VoiceMode, RoomSummary } from '@/domain/types';
+import type { RoomSummary } from '@/domain/types';
 
 // Funny name generator using adjective + noun combinations
 const ADJECTIVES = [
@@ -42,7 +42,6 @@ function generateUsername(): string {
 
 export function JoinRoom() {
   const [roomName, setRoomName] = useState('');
-  const [voiceMode, setVoiceMode] = useState<VoiceMode>('ptt');
   const { requestJoinRoom, requestRooms } = useWebSocket();
   const { availableRooms, connectionState } = useRoomStore();
   const { setVoiceMode: saveVoiceMode } = useSettingsStore();
@@ -60,8 +59,8 @@ export function JoinRoom() {
   const handleJoin = () => {
     if (!roomName.trim()) return;
 
-    saveVoiceMode(voiceMode);
-    requestJoinRoom(roomName.trim(), userName, voiceMode);
+    saveVoiceMode('vad');
+    requestJoinRoom(roomName.trim(), userName, 'vad');
   };
 
   const handleRoomSelect = (room: RoomSummary) => {
@@ -97,26 +96,9 @@ export function JoinRoom() {
             </div>
           </div>
 
-          <div className="field">
-            <label>Voice Mode</label>
-            <div className="voice-mode-options">
-              <button
-                className={`mode-option ${voiceMode === 'ptt' ? 'selected' : ''}`}
-                onClick={() => setVoiceMode('ptt')}
-              >
-                <span className="mode-icon">🎤</span>
-                <span className="mode-name">Push to Talk</span>
-                <span className="mode-desc">Hold V key to speak</span>
-              </button>
-              <button
-                className={`mode-option ${voiceMode === 'vad' ? 'selected' : ''}`}
-                onClick={() => setVoiceMode('vad')}
-              >
-                <span className="mode-icon">🔊</span>
-                <span className="mode-name">Voice Activity</span>
-                <span className="mode-desc">Auto-detect speech</span>
-              </button>
-            </div>
+          <div className="field voice-mode-info">
+            <label>Voice</label>
+            <p className="voice-mode-desc">Open mic. Use Mute in the room; when muted, hold Space to talk.</p>
           </div>
 
           <button
@@ -190,6 +172,13 @@ export function JoinRoom() {
           font-weight: 500;
           color: var(--text-secondary);
           margin-bottom: 8px;
+        }
+
+        .voice-mode-desc {
+          font-size: 13px;
+          color: var(--text-secondary);
+          margin: 0;
+          line-height: 1.4;
         }
 
         .voice-mode-options {

@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"voice-chat/internal/domain/repository"
 	"voice-chat/internal/infrastructure/livekit"
 	"voice-chat/internal/infrastructure/persistence"
 	"voice-chat/internal/interface/handler"
@@ -29,6 +30,21 @@ func main() {
 	userRepo := persistence.NewInMemoryUserRepository()
 	banRepo := persistence.NewInMemoryBanRepository()
 	activityRepo := persistence.NewInMemoryActivityRepository()
+
+	// Initialize chat repository (Redis if enabled, otherwise in-memory)
+	var chatRepo repository.ChatRepository
+	if cfg.RedisEnabled {
+		log.Printf("Initializing Redis chat repository at %s", cfg.RedisAddr)
+		redisRepo, err := persistence.NewRedisChatRepository(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		if err != nil {
+			log.Fatalf("Failed to initialize Redis chat repository: %v", err)
+		}
+		chatRepo = redisRepo
+		log.Println("Redis chat repository initialized successfully")
+	} else {
+		log.Println("Using in-memory chat repository")
+		chatRepo = persistence.NewInMemoryChatRepository()
+	}
 
 	// Initialize services
 	tokenService := livekit.NewTokenService(cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
@@ -54,6 +70,7 @@ func main() {
 		adminActionsUC,
 		getStatsUC,
 		tokenService,
+		chatRepo,
 		cfg,
 	)
 
@@ -82,7 +99,7 @@ func main() {
 	}
 
 	// Start room cleanup goroutine
-	go startRoomCleanup(roomRepo, cfg.RoomCleanupMinutes)
+	go startRoomCleanup(roomRepo, chatRepo, cfg.RoomCleanupMinutes)
 
 	// Start ban cleanup goroutine
 	go startBanCleanup(banRepo)
@@ -131,7 +148,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func startRoomCleanup(roomRepo *persistence.InMemoryRoomRepository, intervalMinutes int) {
+func startRoomCleanup(roomRepo *persistence.InMemoryRoomRepository, chatRepo repository.ChatRepository, intervalMinutes int) {
 	ticker := time.NewTicker(time.Duration(intervalMinutes) * time.Minute)
 	defer ticker.Stop()
 
@@ -143,6 +160,12 @@ func startRoomCleanup(roomRepo *persistence.InMemoryRoomRepository, intervalMinu
 		}
 
 		for _, r := range rooms {
+			// Delete chat messages for the room
+			if err := chatRepo.DeleteRoomMessages(r.ID); err != nil {
+				log.Printf("Error deleting chat messages for room %s: %v", r.Name, err)
+			}
+
+			// Delete the room
 			if err := roomRepo.Delete(r.ID); err != nil {
 				log.Printf("Error deleting room %s: %v", r.Name, err)
 			} else {

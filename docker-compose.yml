@@ -15,6 +15,18 @@ services:
     networks:
       - voice-chat-network
 
+  # Redis for chat persistence
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - voice-chat-network
+    command: redis-server --appendonly yes
+
   # Go Backend Server
   server:
     build: ./server
@@ -31,8 +43,13 @@ services:
       - DEFAULT_ROOM_CAPACITY=15
       - ROOM_CLEANUP_MINUTES=10
       - LOG_LEVEL=info
+      - REDIS_ENABLED=true
+      - REDIS_ADDR=redis:6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
     depends_on:
       - livekit
+      - redis
     networks:
       - voice-chat-network
 
@@ -51,3 +68,6 @@ services:
 networks:
   voice-chat-network:
     driver: bridge
+
+volumes:
+  redis-data:

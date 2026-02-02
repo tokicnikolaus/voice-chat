@@ -13,8 +13,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build binary
-RUN CGO_ENABLED=0 GOOS=linux go build -o /voice-chat ./cmd/server
+# Update go.mod if needed and build binary
+RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /voice-chat ./cmd/server
 
 # Runtime stage
 FROM alpine:latest

@@ -1,25 +1,20 @@
-import { useState } from 'react';
-import type { VoiceMode } from '@/domain/types';
 import { useSettingsStore } from '@/application/stores/settingsStore';
-import { DeviceSelector } from './DeviceSelector';
 
 interface AudioControlsProps {
   isMuted: boolean;
   isPTTActive: boolean;
-  isPTTEnabled: boolean;
+  /** True when muted — show "Hold Space to talk" hint */
+  showSpaceToTalkHint: boolean;
   onToggleMute: () => void;
-  voiceMode: VoiceMode;
 }
 
 export function AudioControls({
   isMuted,
   isPTTActive,
-  isPTTEnabled,
+  showSpaceToTalkHint,
   onToggleMute,
-  voiceMode,
 }: AudioControlsProps) {
   const { pttKey } = useSettingsStore();
-  const [showDeviceSelector, setShowDeviceSelector] = useState(false);
 
   const formatKeyName = (key: string) => {
     return key.replace('Key', '').replace('Digit', '');
@@ -28,51 +23,27 @@ export function AudioControls({
   return (
     <div className="audio-controls">
       <div className="controls-left">
-        {isPTTEnabled ? (
+        <button
+          className={`mute-btn ${isMuted ? 'muted' : ''}`}
+          onClick={onToggleMute}
+        >
+          <span className="mute-icon">{isMuted ? '🔇' : '🎤'}</span>
+          <span className="mute-label">{isMuted ? 'Unmute' : 'Mute'}</span>
+        </button>
+        {showSpaceToTalkHint && (
           <div className={`ptt-indicator ${isPTTActive ? 'active' : ''}`}>
             <span className="ptt-mic-icon">{isPTTActive ? '🎤' : '🔇'}</span>
             <span className="ptt-key">{formatKeyName(pttKey)}</span>
             <span className="ptt-label">
-              {isPTTActive ? 'Transmitting...' : 'Push to Talk'}
+              {isPTTActive ? 'Transmitting...' : 'Hold to talk'}
             </span>
           </div>
-        ) : (
-          <button
-            className={`mute-btn ${isMuted ? 'muted' : ''}`}
-            onClick={onToggleMute}
-          >
-            <span className="mute-icon">{isMuted ? '🔇' : '🎤'}</span>
-            <span className="mute-label">{isMuted ? 'Unmute' : 'Mute'}</span>
-          </button>
         )}
       </div>
 
       <div className="controls-center">
-        <span className="voice-mode-badge">
-          {voiceMode === 'ptt' ? '🎤 Push to Talk' : '🔊 Voice Activity'}
-        </span>
+        <span className="voice-mode-badge">Open mic</span>
       </div>
-
-      <div className="controls-right">
-        <button
-          className="device-btn"
-          onClick={() => {
-            console.log('Device selector button clicked');
-            setShowDeviceSelector(!showDeviceSelector);
-          }}
-          title="Select microphone and speaker"
-        >
-          🎧 Devices
-        </button>
-      </div>
-
-      {showDeviceSelector && (
-        <div className="device-selector-overlay" onClick={() => setShowDeviceSelector(false)}>
-          <div className="device-selector-container" onClick={(e) => e.stopPropagation()}>
-            <DeviceSelector onClose={() => setShowDeviceSelector(false)} />
-          </div>
-        </div>
-      )}
 
       <style>{`
         .audio-controls {
@@ -81,14 +52,11 @@ export function AudioControls({
           align-items: center;
         }
 
-        .controls-left,
-        .controls-right {
+        .controls-left {
           flex: 1;
-        }
-
-        .controls-right {
           display: flex;
-          justify-content: flex-end;
+          align-items: center;
+          gap: 12px;
         }
 
         .controls-center {
@@ -184,45 +152,6 @@ export function AudioControls({
           padding: 6px 12px;
           background: var(--bg-tertiary);
           border-radius: var(--border-radius);
-        }
-
-        .device-btn {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          padding: 12px 20px;
-          background: var(--bg-tertiary);
-          border: 2px solid var(--border-color);
-          border-radius: var(--border-radius);
-          cursor: pointer;
-          font-size: 15px;
-          font-weight: 500;
-          color: var(--text-primary);
-          transition: all var(--transition-fast);
-        }
-
-        .device-btn:hover {
-          border-color: var(--accent-primary);
-          background: var(--bg-hover);
-          transform: translateY(-1px);
-          box-shadow: 0 2px 8px rgba(124, 58, 237, 0.2);
-        }
-
-        .device-selector-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-        }
-
-        .device-selector-container {
-          position: relative;
         }
       `}</style>
     </div>

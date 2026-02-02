@@ -211,6 +211,68 @@ type RoomClosedEvent struct {
 	RoomName string `json:"room_name"`
 }
 
+// ChatMessageRequest represents a chat message from client
+type ChatMessageRequest struct {
+	Content string `json:"content"`
+}
+
+// ChatMessageDTO represents a chat message for client
+type ChatMessageDTO struct {
+	ID         string              `json:"id"`
+	Type       string              `json:"type"` // "chat" or "system"
+	SenderID   string              `json:"sender_id"`
+	SenderName string              `json:"sender_name"`
+	Content    string              `json:"content"`
+	Timestamp  int64               `json:"timestamp"` // Unix milliseconds
+	Reactions  map[string][]string `json:"reactions"` // emoji -> []userID
+}
+
+// ChatHistoryResponse represents chat history sent to client
+type ChatHistoryResponse struct {
+	Messages []*ChatMessageDTO `json:"messages"`
+}
+
+// ChatMessageEvent represents a new chat message broadcast
+type ChatMessageEvent struct {
+	Message *ChatMessageDTO `json:"message"`
+}
+
+// ChatReactionRequest represents a reaction add/remove request
+type ChatReactionRequest struct {
+	MessageID string `json:"message_id"`
+	Emoji     string `json:"emoji"`
+}
+
+// ChatReactionEvent represents a reaction update broadcast
+type ChatReactionEvent struct {
+	MessageID string   `json:"message_id"`
+	Emoji     string   `json:"emoji"`
+	UserID    string   `json:"user_id"`
+	UserIDs   []string `json:"user_ids"` // All users who reacted with this emoji
+}
+
+// ToChatMessageDTO converts a ChatMessage entity to DTO
+func ToChatMessageDTO(msg *entity.ChatMessage) *ChatMessageDTO {
+	return &ChatMessageDTO{
+		ID:         msg.ID,
+		Type:       string(msg.Type),
+		SenderID:   msg.SenderID,
+		SenderName: msg.SenderName,
+		Content:    msg.Content,
+		Timestamp:  msg.Timestamp.UnixMilli(),
+		Reactions:  msg.Reactions,
+	}
+}
+
+// ToChatMessageDTOs converts a slice of ChatMessage entities to DTOs
+func ToChatMessageDTOs(messages []*entity.ChatMessage) []*ChatMessageDTO {
+	dtos := make([]*ChatMessageDTO, len(messages))
+	for i, msg := range messages {
+		dtos[i] = ToChatMessageDTO(msg)
+	}
+	return dtos
+}
+
 // ToParticipantDTO converts a User entity to ParticipantDTO
 func ToParticipantDTO(user *entity.User) *ParticipantDTO {
 	return &ParticipantDTO{

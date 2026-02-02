@@ -28,8 +28,14 @@ type Config struct {
 	RoomCleanupMinutes  int
 
 	// Logging settings
-	LogLevel            string
-	ActivityLogHours    int
+	LogLevel         string
+	ActivityLogHours int
+
+	// Redis settings (for chat persistence)
+	RedisEnabled  bool
+	RedisAddr     string
+	RedisPassword string
+	RedisDB       int
 }
 
 // Load loads configuration from environment variables
@@ -56,6 +62,12 @@ func Load() *Config {
 		// Logging
 		LogLevel:         getEnv("LOG_LEVEL", "info"),
 		ActivityLogHours: getEnvInt("ACTIVITY_LOG_HOURS", 48),
+
+		// Redis (disabled by default, uses in-memory)
+		RedisEnabled:  getEnvBool("REDIS_ENABLED", false),
+		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+		RedisDB:       getEnvInt("REDIS_DB", 0),
 	}
 }
 

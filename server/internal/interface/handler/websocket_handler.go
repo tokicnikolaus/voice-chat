@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/websocket"
 
 	"voice-chat/internal/domain/entity"
+	"voice-chat/internal/domain/repository"
 	"voice-chat/internal/infrastructure/livekit"
 	"voice-chat/internal/interface/dto"
 	"voice-chat/internal/usecase/admin"
@@ -25,15 +26,16 @@ var upgrader = websocket.Upgrader{
 }
 
 type Client struct {
-	ID             string
-	Conn           *websocket.Conn
-	Handler        *WebSocketHandler
-	UserID         string
-	RoomID         string
-	IP             string
-	IsAdmin        bool
+	ID              string
+	Conn            *websocket.Conn
+	Handler         *WebSocketHandler
+	UserID          string
+	UserName        string
+	RoomID          string
+	IP              string
+	IsAdmin         bool
 	BackgroundAudio bool
-	mu             sync.Mutex
+	mu              sync.Mutex
 }
 
 type WebSocketHandler struct {
@@ -46,6 +48,7 @@ type WebSocketHandler struct {
 	adminActionsUC *admin.AdminActionsUseCase
 	getStatsUC     *admin.GetStatsUseCase
 	tokenService   *livekit.TokenService
+	chatRepo       repository.ChatRepository
 	config         *config.Config
 	clients        map[string]*Client
 	roomClients    map[string]map[string]*Client
@@ -62,6 +65,7 @@ func NewWebSocketHandler(
 	adminActionsUC *admin.AdminActionsUseCase,
 	getStatsUC *admin.GetStatsUseCase,
 	tokenService *livekit.TokenService,
+	chatRepo repository.ChatRepository,
 	cfg *config.Config,
 ) *WebSocketHandler {
 	return &WebSocketHandler{
@@ -74,6 +78,7 @@ func NewWebSocketHandler(
 		adminActionsUC: adminActionsUC,
 		getStatsUC:     getStatsUC,
 		tokenService:   tokenService,
+		chatRepo:       chatRepo,
 		config:         cfg,
 		clients:        make(map[string]*Client),
 		roomClients:    make(map[string]map[string]*Client),
@@ -174,6 +179,12 @@ func (h *WebSocketHandler) handleMessage(client *Client, msg dto.Message) {
 		h.handleListRooms(client)
 	case "get_room":
 		h.handleGetRoom(client, msg.Payload)
+	case "chat_message":
+		h.handleChatMessage(client, msg.Payload)
+	case "chat_reaction_add":
+		h.handleChatReactionAdd(client, msg.Payload)
+	case "chat_reaction_remove":
+		h.handleChatReactionRemove(client, msg.Payload)
 	case "ping":
 		// Respond to ping with pong
 		h.sendToClient(client, "pong", map[string]interface{}{})
@@ -225,6 +236,7 @@ func (h *WebSocketHandler) handleJoinRoom(client *Client, payload json.RawMessag
 
 	// Update client state
 	client.RoomID = result.Room.ID
+	client.UserName = result.User.Name
 
 	// Add to room clients
 	h.mu.Lock()
@@ -268,11 +280,38 @@ func (h *WebSocketHandler) handleJoinRoom(client *Client, payload json.RawMessag
 	log.Printf("Sent room_joined response: UserID=%s, RoomID=%s, LiveKitURL=%s",
 		client.UserID, result.Room.ID, h.config.LiveKitURL)
 
-	// Notify other participants
+	// Send chat history to the joining user
+	chatHistory, err := h.chatRepo.GetMessages(result.Room.ID, repository.DefaultChatHistoryLimit)
+	if err != nil {
+		log.Printf("Error fetching chat history: %v", err)
+	} else {
+		h.sendToClient(client, "chat_history", dto.ChatHistoryResponse{
+			Messages: dto.ToChatMessageDTOs(chatHistory),
+		})
+	}
+
+	// Create and broadcast system message about user joining
+	systemMsg := entity.NewSystemMessage(
+		uuid.New().String(),
+		result.Room.ID,
+		result.User.ID,
+		result.User.Name,
+		"joined the room",
+	)
+	if err := h.chatRepo.AddMessage(systemMsg); err != nil {
+		log.Printf("Error saving system message: %v", err)
+	}
+
+	// Notify other participants about the new user
 	h.broadcastToRoom(result.Room.ID, client.UserID, "user_joined", dto.UserJoinedEvent{
 		UserID:   result.User.ID,
 		UserName: result.User.Name,
 		RoomID:   result.Room.ID,
+	})
+
+	// Broadcast chat system message to ALL participants (including the joiner)
+	h.broadcastToRoomAll(result.Room.ID, "chat_message", dto.ChatMessageEvent{
+		Message: dto.ToChatMessageDTO(systemMsg),
 	})
 
 	// Broadcast updated room list to clients in lobby
@@ -286,6 +325,7 @@ func (h *WebSocketHandler) handleLeaveRoom(client *Client, payload json.RawMessa
 
 	roomID := client.RoomID
 	userID := client.UserID
+	userName := client.UserName
 
 	_, err := h.leaveRoomUC.Execute(room.LeaveRoomInput{
 		RoomID: roomID,
@@ -296,6 +336,23 @@ func (h *WebSocketHandler) handleLeaveRoom(client *Client, payload json.RawMessa
 		h.sendError(client, "LEAVE_FAILED", err.Error())
 		return
 	}
+
+	// Create system message about user leaving (before removing from room)
+	systemMsg := entity.NewSystemMessage(
+		uuid.New().String(),
+		roomID,
+		userID,
+		userName,
+		"left the room",
+	)
+	if err := h.chatRepo.AddMessage(systemMsg); err != nil {
+		log.Printf("Error saving system message: %v", err)
+	}
+
+	// Broadcast chat system message to remaining participants
+	h.broadcastToRoom(roomID, userID, "chat_message", dto.ChatMessageEvent{
+		Message: dto.ToChatMessageDTO(systemMsg),
+	})
 
 	// Remove from room clients
 	h.mu.Lock()
@@ -313,13 +370,15 @@ func (h *WebSocketHandler) handleLeaveRoom(client *Client, payload json.RawMessa
 	client.mu.Unlock()
 
 	client.RoomID = ""
+	client.UserName = ""
 
 	h.sendToClient(client, "room_left", map[string]interface{}{})
 
 	// Notify other participants
 	h.broadcastToRoom(roomID, userID, "user_left", dto.UserLeftEvent{
-		UserID: userID,
-		RoomID: roomID,
+		UserID:   userID,
+		UserName: userName,
+		RoomID:   roomID,
 	})
 
 	// Broadcast updated room list to clients in lobby
@@ -509,6 +568,140 @@ func (h *WebSocketHandler) broadcastRoomListToLobby() {
 	for _, client := range lobbyClients {
 		h.sendToClient(client, "room_list", payload)
 	}
+}
+
+// broadcastToRoomAll sends a message to ALL clients in a room (including sender)
+func (h *WebSocketHandler) broadcastToRoomAll(roomID string, msgType string, payload interface{}) {
+	h.mu.RLock()
+	roomClients, ok := h.roomClients[roomID]
+	if !ok {
+		h.mu.RUnlock()
+		return
+	}
+
+	clients := make([]*Client, 0, len(roomClients))
+	for _, client := range roomClients {
+		clients = append(clients, client)
+	}
+	h.mu.RUnlock()
+
+	for _, client := range clients {
+		h.sendToClient(client, msgType, payload)
+	}
+}
+
+func (h *WebSocketHandler) handleChatMessage(client *Client, payload json.RawMessage) {
+	if client.RoomID == "" {
+		h.sendError(client, "NOT_IN_ROOM", "You must join a room first")
+		return
+	}
+
+	var req dto.ChatMessageRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		h.sendError(client, "INVALID_PAYLOAD", "Invalid chat message request")
+		return
+	}
+
+	if req.Content == "" {
+		return // Ignore empty messages
+	}
+
+	// Create chat message
+	msg := entity.NewChatMessage(
+		uuid.New().String(),
+		client.RoomID,
+		client.UserID,
+		client.UserName,
+		req.Content,
+	)
+
+	// Save to repository
+	if err := h.chatRepo.AddMessage(msg); err != nil {
+		log.Printf("Error saving chat message: %v", err)
+		h.sendError(client, "CHAT_ERROR", "Failed to save message")
+		return
+	}
+
+	// Broadcast to all room participants (including sender for confirmation)
+	h.broadcastToRoomAll(client.RoomID, "chat_message", dto.ChatMessageEvent{
+		Message: dto.ToChatMessageDTO(msg),
+	})
+}
+
+func (h *WebSocketHandler) handleChatReactionAdd(client *Client, payload json.RawMessage) {
+	if client.RoomID == "" {
+		h.sendError(client, "NOT_IN_ROOM", "You must join a room first")
+		return
+	}
+
+	var req dto.ChatReactionRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		h.sendError(client, "INVALID_PAYLOAD", "Invalid reaction request")
+		return
+	}
+
+	// Get the message
+	msg, err := h.chatRepo.GetMessage(client.RoomID, req.MessageID)
+	if err != nil {
+		h.sendError(client, "MESSAGE_NOT_FOUND", "Message not found")
+		return
+	}
+
+	// Add reaction
+	msg.AddReaction(req.Emoji, client.UserID)
+
+	// Update in repository
+	if err := h.chatRepo.UpdateMessage(msg); err != nil {
+		log.Printf("Error updating message reaction: %v", err)
+		h.sendError(client, "CHAT_ERROR", "Failed to update reaction")
+		return
+	}
+
+	// Broadcast reaction update to all room participants
+	h.broadcastToRoomAll(client.RoomID, "chat_reaction", dto.ChatReactionEvent{
+		MessageID: req.MessageID,
+		Emoji:     req.Emoji,
+		UserID:    client.UserID,
+		UserIDs:   msg.Reactions[req.Emoji],
+	})
+}
+
+func (h *WebSocketHandler) handleChatReactionRemove(client *Client, payload json.RawMessage) {
+	if client.RoomID == "" {
+		h.sendError(client, "NOT_IN_ROOM", "You must join a room first")
+		return
+	}
+
+	var req dto.ChatReactionRequest
+	if err := json.Unmarshal(payload, &req); err != nil {
+		h.sendError(client, "INVALID_PAYLOAD", "Invalid reaction request")
+		return
+	}
+
+	// Get the message
+	msg, err := h.chatRepo.GetMessage(client.RoomID, req.MessageID)
+	if err != nil {
+		h.sendError(client, "MESSAGE_NOT_FOUND", "Message not found")
+		return
+	}
+
+	// Remove reaction
+	msg.RemoveReaction(req.Emoji, client.UserID)
+
+	// Update in repository
+	if err := h.chatRepo.UpdateMessage(msg); err != nil {
+		log.Printf("Error updating message reaction: %v", err)
+		h.sendError(client, "CHAT_ERROR", "Failed to update reaction")
+		return
+	}
+
+	// Broadcast reaction update to all room participants
+	h.broadcastToRoomAll(client.RoomID, "chat_reaction", dto.ChatReactionEvent{
+		MessageID: req.MessageID,
+		Emoji:     req.Emoji,
+		UserID:    client.UserID,
+		UserIDs:   msg.Reactions[req.Emoji],
+	})
 }
 
 func getClientIP(r *http.Request) string {

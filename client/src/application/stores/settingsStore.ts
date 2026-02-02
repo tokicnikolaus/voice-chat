@@ -38,8 +38,8 @@ export interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      voiceMode: 'ptt',
-      pttKey: 'KeyV',
+      voiceMode: 'vad',
+      pttKey: 'KeySpace',
       masterVolume: 100,
       userVolumes: {},
       audioInputDeviceId: null,

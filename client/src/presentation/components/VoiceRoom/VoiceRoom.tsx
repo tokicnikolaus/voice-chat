@@ -1,20 +1,36 @@
 import { useRoomStore } from '@/application/stores/roomStore';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useWebSocket } from '@/application/hooks/useWebSocket';
 import { useVoiceRoom } from '@/application/hooks/useVoiceRoom';
 import { usePushToTalk } from '@/application/hooks/usePushToTalk';
+import { useChat } from '@/application/hooks/useChat';
 import { ParticipantGrid } from './ParticipantGrid';
 import { AudioControls } from '@/presentation/components/Controls/AudioControls';
+import { DeviceSelector } from '@/presentation/components/Controls/DeviceSelector';
+import { ChatPanel } from '@/presentation/components/Chat';
 import { getToneGenerator } from '@/infrastructure/audio/toneGenerator';
+import { getVoiceService } from '@/infrastructure/livekit/VoiceService';
 import { AloneIndicator } from './AloneIndicator';
 import { MicrophoneLevel } from './MicrophoneLevel';
 import { LiveKitStatus } from './LiveKitStatus';
 
 export function VoiceRoom() {
-  const { currentRoom, participants, voiceMode } = useRoomStore();
+  const { currentRoom, participants } = useRoomStore();
   const { requestLeaveRoom } = useWebSocket();
   const { isMuted, toggleMute } = useVoiceRoom();
-  const { isPTTActive, isEnabled: isPTTEnabled } = usePushToTalk();
+  const { isPTTActive, isEnabled: showSpaceToTalkHint } = usePushToTalk();
+  const { isPanelOpen, unreadCount, togglePanel } = useChat();
+  const [showDeviceSelector, setShowDeviceSelector] = useState(false);
+
+  // Disconnect LiveKit (release mic) first, then tell server we left — so mic is off before join screen
+  const handleLeaveRoom = useCallback(async () => {
+    const toneGen = getToneGenerator();
+    if (toneGen.getIsPlaying()) {
+      toneGen.stop();
+    }
+    await getVoiceService().disconnect().catch(console.error);
+    requestLeaveRoom();
+  }, [requestLeaveRoom]);
 
   // Unlock AudioContext on room join (required for background music to work later)
   // This happens automatically when user joins room (which requires clicking)
@@ -58,45 +74,95 @@ export function VoiceRoom() {
   if (!currentRoom) return null;
 
   return (
-    <div className="voice-room">
-      <header className="room-header">
-        <div className="room-info">
-          <h1 className="room-name">{currentRoom.name}</h1>
-          <span className="participant-count">
-            {participants.length} participant{participants.length !== 1 ? 's' : ''}
-          </span>
-        </div>
-        <button className="btn btn-secondary leave-btn" onClick={requestLeaveRoom}>
-          Leave Room
-        </button>
-      </header>
-
-      <main className="room-content">
-        <AloneIndicator isAlone={participants.length === 1} />
-        <ParticipantGrid participants={participants} />
-      </main>
-
-      <footer className="room-footer">
-        <div className="footer-content">
-          <div className="footer-left">
-            <LiveKitStatus />
-            <MicrophoneLevel />
+    <div className={`voice-room ${isPanelOpen ? 'with-chat' : ''}`}>
+      <div className="room-main">
+        <header className="room-header">
+          <div className="room-info">
+            <h1 className="room-name">{currentRoom.name}</h1>
+            <span className="participant-count">
+              {participants.length} participant{participants.length !== 1 ? 's' : ''}
+            </span>
           </div>
-          <AudioControls
-            isMuted={isMuted}
-            isPTTActive={isPTTActive}
-            isPTTEnabled={isPTTEnabled}
-            onToggleMute={toggleMute}
-            voiceMode={voiceMode}
-          />
+          <div className="header-actions">
+            <button
+              className="header-icon-btn"
+              onClick={() => setShowDeviceSelector(!showDeviceSelector)}
+              title="Audio devices"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+              </svg>
+            </button>
+            <button
+              className={`header-icon-btn ${isPanelOpen ? 'active' : ''}`}
+              onClick={togglePanel}
+              title={isPanelOpen ? 'Close chat' : 'Open chat'}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              {unreadCount > 0 && (
+                <span className="unread-badge">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </button>
+            <button className="btn btn-secondary leave-btn" onClick={handleLeaveRoom}>
+              Leave Room
+            </button>
+          </div>
+        </header>
+
+        <main className="room-content">
+          <AloneIndicator isAlone={participants.length === 1} />
+          <ParticipantGrid participants={participants} />
+        </main>
+
+        <footer className="room-footer">
+          <div className="footer-content">
+            <div className="footer-left">
+              <LiveKitStatus />
+              <MicrophoneLevel />
+            </div>
+            <AudioControls
+              isMuted={isMuted}
+              isPTTActive={isPTTActive}
+              showSpaceToTalkHint={showSpaceToTalkHint}
+              onToggleMute={toggleMute}
+            />
+          </div>
+        </footer>
+      </div>
+
+      {isPanelOpen && <ChatPanel />}
+
+      {showDeviceSelector && (
+        <div className="device-selector-overlay" onClick={() => setShowDeviceSelector(false)}>
+          <div className="device-selector-container" onClick={(e) => e.stopPropagation()}>
+            <DeviceSelector onClose={() => setShowDeviceSelector(false)} />
+          </div>
         </div>
-      </footer>
+      )}
 
       <style>{`
         .voice-room {
           width: 100%;
           max-width: 1200px;
           height: 100%;
+          max-height: 100%;
+          display: flex;
+          flex-direction: row;
+          overflow: hidden;
+        }
+
+        .voice-room.with-chat {
+          max-width: 1580px;
+        }
+
+        .room-main {
+          flex: 1;
+          min-width: 0;
           display: flex;
           flex-direction: column;
         }
@@ -105,10 +171,16 @@ export function VoiceRoom() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 20px;
+          padding: var(--header-padding);
+          height: var(--header-height);
+          box-sizing: border-box;
           background: var(--bg-secondary);
           border-bottom: 1px solid var(--border-color);
           border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+        }
+
+        .voice-room.with-chat .room-header {
+          border-radius: var(--border-radius-lg) 0 0 0;
         }
 
         .room-info {
@@ -127,8 +199,74 @@ export function VoiceRoom() {
           color: var(--text-secondary);
         }
 
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .header-icon-btn {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          border: 1px solid var(--border-color);
+          background: var(--bg-tertiary);
+          color: var(--text-secondary);
+          cursor: pointer;
+          border-radius: var(--border-radius);
+          transition: all var(--transition-fast);
+        }
+
+        .header-icon-btn:hover {
+          border-color: var(--accent-primary);
+          color: var(--accent-primary);
+        }
+
+        .header-icon-btn.active {
+          background: var(--accent-primary);
+          border-color: var(--accent-primary);
+          color: white;
+        }
+
+        .unread-badge {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          background: var(--error);
+          color: white;
+          font-size: 11px;
+          font-weight: 600;
+          border-radius: 9px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
         .leave-btn {
           color: var(--error);
+        }
+
+        .device-selector-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+
+        .device-selector-container {
+          position: relative;
         }
 
         .room-content {
@@ -143,6 +281,10 @@ export function VoiceRoom() {
           background: var(--bg-secondary);
           border-top: 1px solid var(--border-color);
           border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
+        }
+
+        .voice-room.with-chat .room-footer {
+          border-radius: 0 0 0 var(--border-radius-lg);
         }
 
         .footer-content {

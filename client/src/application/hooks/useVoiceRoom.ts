@@ -155,16 +155,24 @@ export function useVoiceRoom() {
         }
         console.log('✅ LiveKit room connected successfully (promise resolved)');
 
-        // Ensure microphone is disabled by default (muted state)
-        // User must explicitly unmute to speak (push-to-talk or toggle)
+        // Enable microphone immediately on join so the permission popup shows right when
+        // entering the room, and open mic is active without needing to click mute/unmute.
+        const wantUnmuted = !useRoomStore.getState().isMuted;
         try {
-          if (service.isMicrophoneEnabled()) {
-            console.log('🎤 Disabling microphone (default muted state)');
-            await service.setMicrophoneEnabled(false);
+          await service.setMicrophoneEnabled(wantUnmuted);
+          if (wantUnmuted) {
+            useRoomStore.getState().setMuted(false);
           }
-        } catch (error) {
-          // Ignore errors - mic might not be published yet
-          console.log('Note: Could not disable mic (may not be published yet)');
+        } catch (error: any) {
+          console.error('Failed to enable microphone on join:', error);
+          useRoomStore.getState().setMuted(true);
+          let msg = 'Microphone access is needed for voice.';
+          if (error?.message?.includes('permission') || error?.message?.includes('denied')) {
+            msg = 'Microphone permission is required. Please allow access and rejoin or unmute.';
+          } else if (error?.message) {
+            msg = error.message;
+          }
+          alert(msg);
         }
 
         // Apply saved output device setting only (not input - that would enable mic)

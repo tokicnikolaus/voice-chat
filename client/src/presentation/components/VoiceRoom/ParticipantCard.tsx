@@ -16,7 +16,7 @@ export function ParticipantCard({ participant }: ParticipantCardProps) {
   const isCurrentUser = participant.id === userId;
 
   return (
-    <div className={`participant-card ${isSpeaking ? 'speaking' : ''}`}>
+    <div className={`participant-card ${isSpeaking ? 'speaking' : ''} ${isCurrentUser ? 'current-user' : ''}`}>
       <div className="avatar-container">
         <Avatar name={participant.name} size={80} />
         {isSpeaking && <SpeakingIndicator />}
@@ -48,9 +48,19 @@ export function ParticipantCard({ participant }: ParticipantCardProps) {
           transition: all var(--transition-normal);
         }
 
+        .participant-card.current-user {
+          border-color: var(--accent-primary);
+          background: var(--bg-secondary);
+          box-shadow: 0 0 0 1px var(--accent-primary);
+        }
+
         .participant-card.speaking {
           border-color: var(--accent-primary);
           box-shadow: var(--shadow-glow);
+        }
+
+        .participant-card.current-user.speaking {
+          box-shadow: var(--shadow-glow), 0 0 0 1px var(--accent-primary);
         }
 
         .avatar-container {

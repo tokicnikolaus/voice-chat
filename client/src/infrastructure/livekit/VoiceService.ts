@@ -15,11 +15,13 @@ import type { IVoiceService, AudioDevice } from '@/domain/interfaces';
 
 type SpeakingHandler = (participantId: string, speaking: boolean) => void;
 type QualityHandler = (participantId: string, quality: number) => void;
+type DataHandler = (data: Uint8Array, participantId: string) => void;
 
 export class VoiceService implements IVoiceService {
   private room: Room | null = null;
   private speakingHandlers: Set<SpeakingHandler> = new Set();
   private qualityHandlers: Set<QualityHandler> = new Set();
+  private dataHandlers: Set<DataHandler> = new Set();
   private connectingPromise: Promise<void> | null = null;
   private currentInputDeviceId: string | null = null;
   private currentOutputDeviceId: string | null = null;
@@ -185,19 +187,14 @@ export class VoiceService implements IVoiceService {
     if (this.room) {
       console.log('🔄 LiveKit: Disconnecting room (state:', this.room.state, ')');
 
-      // Disable local microphone first to stop capturing
+      // Unpublish local microphone so we stop sending; room.disconnect(true) will stop
+      // local tracks and release the mic. We don't stop tracks ourselves so the SDK
+      // handles it once (avoids double-stop; browser keeps permission for same origin on rejoin).
       try {
         if (this.room.localParticipant?.isMicrophoneEnabled) {
           console.log('🎤 Disabling local microphone before disconnect');
           await this.room.localParticipant.setMicrophoneEnabled(false);
         }
-        // Unpublish and stop all local tracks
-        this.room.localParticipant?.audioTrackPublications.forEach((publication) => {
-          if (publication.track) {
-            console.log('🔇 Stopping local audio track');
-            publication.track.stop();
-          }
-        });
       } catch (error) {
         console.error('Error disabling local microphone:', error);
       }
@@ -218,7 +215,8 @@ export class VoiceService implements IVoiceService {
       }
 
       try {
-        await this.room.disconnect();
+        // stopTracks: true (default) so SDK stops local tracks and releases the microphone
+        await this.room.disconnect(true);
         console.log('✅ LiveKit: Room disconnected successfully');
       } catch (error) {
         console.error('❌ LiveKit: Error during disconnect:', error);
@@ -468,15 +466,20 @@ export class VoiceService implements IVoiceService {
       // Notify about all participants' speaking state
       const speakerIds = new Set(speakers.map((s) => s.identity));
 
-      // Check local participant
+      // Collect all participant IDs (local + remote)
+      const allParticipantIds = new Set<string>();
       if (this.room?.localParticipant) {
-        const localId = this.room.localParticipant.identity;
-        this.notifySpeaking(localId, speakerIds.has(localId));
+        allParticipantIds.add(this.room.localParticipant.identity);
       }
+      this.room?.remoteParticipants.forEach((p) => {
+        allParticipantIds.add(p.identity);
+      });
 
-      // Check remote participants
-      this.room?.remoteParticipants.forEach((participant) => {
-        this.notifySpeaking(participant.identity, speakerIds.has(participant.identity));
+      // Update speaking state for all participants
+      // Mark as speaking if in speakers list, not speaking if not
+      allParticipantIds.forEach((participantId) => {
+        const isSpeaking = speakerIds.has(participantId);
+        this.notifySpeaking(participantId, isSpeaking);
       });
     });
 
@@ -493,7 +496,7 @@ export class VoiceService implements IVoiceService {
 
     // Track subscription
     this.room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-      console.log('🎵 Track subscribed:', track.kind, 'from', participant.identity);
+      console.log('🎵 Track subscribed:', track.kind, 'from', participant?.identity || 'unknown');
       if (track.kind === 'audio' && track instanceof RemoteAudioTrack) {
         // Audio track automatically plays
         // Apply output device if set
@@ -530,6 +533,21 @@ export class VoiceService implements IVoiceService {
         }
       });
     });
+
+    // Data channel events for chat
+    this.room.on(RoomEvent.DataReceived, (data: Uint8Array, participant?: RemoteParticipant) => {
+      if (this.room !== roomForHandlers) {
+        return; // Ignore events from old room
+      }
+      const participantId = participant?.identity ?? 'unknown';
+      this.dataHandlers.forEach((handler) => {
+        try {
+          handler(data, participantId);
+        } catch (error) {
+          console.error('Error in data handler:', error);
+        }
+      });
+    });
   }
 
   private notifySpeaking(participantId: string, speaking: boolean): void {
@@ -561,6 +579,61 @@ export class VoiceService implements IVoiceService {
 
   isConnected(): boolean {
     return this.room?.state === ConnectionState.Connected;
+  }
+
+  // Data channel methods for chat
+  async publishData(data: object): Promise<void> {
+    if (!this.room?.localParticipant) {
+      throw new Error('Not connected to room');
+    }
+    const encoded = new TextEncoder().encode(JSON.stringify(data));
+    await this.room.localParticipant.publishData(encoded, { reliable: true });
+  }
+
+  async publishDataTo(data: object, destinationIdentities: string[]): Promise<void> {
+    if (!this.room?.localParticipant) {
+      throw new Error('Not connected to room');
+    }
+    const encoded = new TextEncoder().encode(JSON.stringify(data));
+    await this.room.localParticipant.publishData(encoded, {
+      reliable: true,
+      destinationIdentities,
+    });
+  }
+
+  onDataReceived(handler: DataHandler): () => void {
+    this.dataHandlers.add(handler);
+    return () => {
+      this.dataHandlers.delete(handler);
+    };
+  }
+
+  isOldestParticipant(): boolean {
+    if (!this.room?.localParticipant) return false;
+
+    const localJoinedAt = this.room.localParticipant.joinedAt?.getTime() ?? Date.now();
+
+    for (const participant of this.room.remoteParticipants.values()) {
+      const remoteJoinedAt = participant.joinedAt?.getTime() ?? Date.now();
+      if (remoteJoinedAt < localJoinedAt) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  getLocalParticipantIdentity(): string | undefined {
+    return this.room?.localParticipant?.identity;
+  }
+
+  getLocalParticipantName(): string | undefined {
+    return this.room?.localParticipant?.name || this.room?.localParticipant?.identity;
+  }
+
+  getRemoteParticipantIdentities(): string[] {
+    if (!this.room) return [];
+    return Array.from(this.room.remoteParticipants.keys());
   }
 }
 
