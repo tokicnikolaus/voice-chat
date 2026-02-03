@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"voice-chat/internal/domain/entity"
 	"voice-chat/internal/domain/repository"
 	"voice-chat/internal/infrastructure/livekit"
 	"voice-chat/internal/infrastructure/persistence"
@@ -59,6 +62,20 @@ func main() {
 	adminActionsUC := admin.NewAdminActionsUseCase(roomRepo, userRepo, banRepo, activityRepo)
 	getStatsUC := admin.NewGetStatsUseCase(roomRepo, userRepo, banRepo, activityRepo)
 
+	// Create persistent Lobby room on startup
+	lobbyInput := room.CreateRoomInput{
+		Name:      "Lobby",
+		Type:      entity.RoomTypePublic,
+		CreatedBy: "admin", // Admin-created rooms are not cleaned up
+		Capacity:  100,
+	}
+	if _, err := createRoomUC.Execute(lobbyInput); err != nil {
+		// Lobby may already exist if server restarted quickly
+		log.Printf("Lobby room creation: %v", err)
+	} else {
+		log.Println("Created persistent Lobby room")
+	}
+
 	// Initialize WebSocket handler
 	wsHandler := handler.NewWebSocketHandler(
 		createRoomUC,
@@ -85,6 +102,9 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Auth proxy endpoint to bypass CORS (proxies /api/auth/* to auth.staging.gamebay.io/auth/*)
+	mux.HandleFunc("/api/", handleAuthProxy)
 
 	// CORS middleware
 	corsHandler := corsMiddleware(mux)
@@ -201,4 +221,50 @@ func startActivityCleanup(activityRepo *persistence.InMemoryActivityRepository, 
 			log.Printf("Cleaned up %d old activity logs", count)
 		}
 	}
+}
+
+// handleAuthProxy proxies auth requests to api.staging.gamebay.io to bypass CORS
+func handleAuthProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract the path after /api/ and prepend /v1
+	// /api/auth/login -> /v1/auth/login
+	path := strings.TrimPrefix(r.URL.Path, "/api")
+	targetURL := "https://api.staging.gamebay.io/v1" + path
+
+	log.Printf("Auth proxy: %s %s -> %s", r.Method, r.URL.Path, targetURL)
+
+	// Create proxy request
+	proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
+	if err != nil {
+		http.Error(w, "Failed to create proxy request", http.StatusInternalServerError)
+		return
+	}
+
+	// Copy headers
+	for key, values := range r.Header {
+		for _, value := range values {
+			proxyReq.Header.Add(key, value)
+		}
+	}
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	// Make the request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		log.Printf("Auth proxy error: %v", err)
+		http.Error(w, "Auth service unavailable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy response headers
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+
+	// Copy status code and body
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }

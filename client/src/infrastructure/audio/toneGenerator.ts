@@ -88,19 +88,21 @@ export class ToneGenerator {
    * Stop playing the background audio
    */
   stop(): void {
-    if (!this.isPlaying && !this.audioElement) {
-      return;
-    }
-
     try {
       if (this.audioElement) {
         this.audioElement.pause();
         this.audioElement.currentTime = 0; // Reset to beginning
+        // Remove the audio element completely to ensure cleanup
+        this.audioElement.src = '';
+        this.audioElement = null;
       }
       this.isPlaying = false;
       console.log('Background audio stopped');
     } catch (error) {
       console.error('Failed to stop background audio:', error);
+      // Force cleanup even on error
+      this.audioElement = null;
+      this.isPlaying = false;
     }
   }
 

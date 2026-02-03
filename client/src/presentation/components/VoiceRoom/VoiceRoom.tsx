@@ -22,14 +22,15 @@ export function VoiceRoom() {
   const { isPanelOpen, unreadCount, togglePanel } = useChat();
   const [showDeviceSelector, setShowDeviceSelector] = useState(false);
 
-  // Disconnect LiveKit (release mic) first, then tell server we left — so mic is off before join screen
-  const handleLeaveRoom = useCallback(async () => {
+  // Back to Lobby: leave current room and return to lobby
+  const handleBackToLobby = useCallback(async () => {
     const toneGen = getToneGenerator();
     if (toneGen.getIsPlaying()) {
       toneGen.stop();
     }
     await getVoiceService().disconnect().catch(console.error);
     requestLeaveRoom();
+    // After leaving, the App will show Lobby which will auto-join
   }, [requestLeaveRoom]);
 
   // Unlock AudioContext on room join (required for background music to work later)
@@ -108,8 +109,12 @@ export function VoiceRoom() {
                 </span>
               )}
             </button>
-            <button className="btn btn-secondary leave-btn" onClick={handleLeaveRoom}>
-              Leave Room
+            <button className="btn btn-secondary back-btn" onClick={handleBackToLobby}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
+              Back to Lobby
             </button>
           </div>
         </header>
@@ -248,8 +253,10 @@ export function VoiceRoom() {
           justify-content: center;
         }
 
-        .leave-btn {
-          color: var(--error);
+        .back-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .device-selector-overlay {

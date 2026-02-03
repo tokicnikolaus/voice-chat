@@ -15,7 +15,8 @@ type Config struct {
 	AllowedOrigins []string
 
 	// LiveKit settings
-	LiveKitURL       string
+	LiveKitURL       string // Internal URL for server-to-LiveKit communication
+	LiveKitPublicURL string // Public URL sent to clients (defaults to LiveKitURL if not set)
 	LiveKitAPIKey    string
 	LiveKitAPISecret string
 
@@ -48,6 +49,7 @@ func Load() *Config {
 
 		// LiveKit
 		LiveKitURL:       getEnv("LIVEKIT_URL", "ws://localhost:7880"),
+		LiveKitPublicURL: getEnv("LIVEKIT_PUBLIC_URL", getEnv("LIVEKIT_URL", "ws://localhost:7880")),
 		LiveKitAPIKey:    getEnv("LIVEKIT_API_KEY", "devkey"),
 		LiveKitAPISecret: getEnv("LIVEKIT_API_SECRET", "secret"),
 
