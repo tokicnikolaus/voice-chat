@@ -3,13 +3,11 @@ import { useRoomStore } from '@/application/stores/roomStore';
 import { useAuthStore } from '@/application/stores/authStore';
 import { useWebSocket } from '@/application/hooks/useWebSocket';
 import { useVoiceRoom } from '@/application/hooks/useVoiceRoom';
-import { usePushToTalk } from '@/application/hooks/usePushToTalk';
 import { useChat } from '@/application/hooks/useChat';
 import { LobbyHeader } from './LobbyHeader';
 import { RoomsSidebar } from './RoomsSidebar';
 import { CreateRoomModal } from './CreateRoomModal';
 import { ParticipantGrid } from '@/presentation/components/VoiceRoom/ParticipantGrid';
-import { AudioControls } from '@/presentation/components/Controls/AudioControls';
 import { DeviceSelector } from '@/presentation/components/Controls/DeviceSelector';
 import { ChatPanel } from '@/presentation/components/Chat';
 import { MicrophoneLevel } from '@/presentation/components/VoiceRoom/MicrophoneLevel';
@@ -21,29 +19,22 @@ export function Lobby() {
   const { user } = useAuthStore();
   const { currentRoom, participants, availableRooms, connectionState } = useRoomStore();
   const { requestJoinRoom, requestLeaveRoom, requestRooms } = useWebSocket();
-  const { isMuted, toggleMute } = useVoiceRoom();
-  const { isPTTActive, isEnabled: showSpaceToTalkHint } = usePushToTalk();
+  const { toggleMute } = useVoiceRoom();
   const { isPanelOpen, unreadCount, togglePanel } = useChat();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDeviceSelector, setShowDeviceSelector] = useState(false);
   const [isRoomsPanelOpen, setIsRoomsPanelOpen] = useState(false);
 
-  // Toggle rooms panel (closes chat if open)
+  // Toggle rooms panel (independent of chat)
   const handleToggleRooms = useCallback(() => {
-    if (!isRoomsPanelOpen && isPanelOpen) {
-      togglePanel(); // Close chat first
-    }
     setIsRoomsPanelOpen(!isRoomsPanelOpen);
-  }, [isRoomsPanelOpen, isPanelOpen, togglePanel]);
+  }, [isRoomsPanelOpen]);
 
-  // Toggle chat panel (closes rooms if open)
+  // Toggle chat panel (independent of rooms)
   const handleToggleChat = useCallback(() => {
-    if (!isPanelOpen && isRoomsPanelOpen) {
-      setIsRoomsPanelOpen(false); // Close rooms first
-    }
     togglePanel();
-  }, [isPanelOpen, isRoomsPanelOpen, togglePanel]);
+  }, [togglePanel]);
 
   // Use ref for synchronous updates - prevents race condition with auto-join
   const isJoiningOtherRoomRef = useRef(false);
@@ -166,6 +157,14 @@ export function Lobby() {
 
   return (
     <div className={`lobby ${isPanelOpen ? 'with-chat' : ''} ${isRoomsPanelOpen ? 'with-rooms' : ''}`}>
+      {isRoomsPanelOpen && (
+        <RoomsSidebar
+          rooms={availableRooms}
+          onJoinRoom={handleJoinRoom}
+          onCreateRoom={() => setShowCreateModal(true)}
+          onClose={() => setIsRoomsPanelOpen(false)}
+        />
+      )}
       <div className="lobby-main">
         <LobbyHeader
           participantCount={participants.length}
@@ -189,28 +188,11 @@ export function Lobby() {
 
         <footer className="lobby-footer">
           <div className="footer-content">
-            <div className="footer-left">
-              <LiveKitStatus />
-              <MicrophoneLevel />
-            </div>
-            <AudioControls
-              isMuted={isMuted}
-              isPTTActive={isPTTActive}
-              showSpaceToTalkHint={showSpaceToTalkHint}
-              onToggleMute={toggleMute}
-            />
+            <LiveKitStatus onToggleMute={toggleMute} />
+            <MicrophoneLevel />
           </div>
         </footer>
       </div>
-
-      {isRoomsPanelOpen && (
-        <RoomsSidebar
-          rooms={availableRooms}
-          onJoinRoom={handleJoinRoom}
-          onCreateRoom={() => setShowCreateModal(true)}
-          onClose={() => setIsRoomsPanelOpen(false)}
-        />
-      )}
 
       {isPanelOpen && <ChatPanel />}
 
@@ -240,9 +222,16 @@ export function Lobby() {
           overflow: hidden;
         }
 
-        .lobby.with-chat,
-        .lobby.with-rooms {
+        .lobby.with-chat {
           max-width: 1280px;
+        }
+
+        .lobby.with-rooms {
+          max-width: 1240px;
+        }
+
+        .lobby.with-chat.with-rooms {
+          max-width: 1620px;
         }
 
         .lobby-main {
@@ -252,9 +241,16 @@ export function Lobby() {
           flex-direction: column;
         }
 
-        .lobby.with-chat .lobby-main header,
-        .lobby.with-rooms .lobby-main header {
+        .lobby.with-chat .lobby-main header {
           border-radius: var(--border-radius-lg) 0 0 0;
+        }
+
+        .lobby.with-rooms .lobby-main header {
+          border-radius: 0 var(--border-radius-lg) 0 0;
+        }
+
+        .lobby.with-chat.with-rooms .lobby-main header {
+          border-radius: 0;
         }
 
         .lobby-content {
@@ -290,19 +286,19 @@ export function Lobby() {
           border-radius: 0 0 var(--border-radius-lg) var(--border-radius-lg);
         }
 
-        .lobby.with-chat .lobby-footer,
-        .lobby.with-rooms .lobby-footer {
+        .lobby.with-chat .lobby-footer {
           border-radius: 0 0 0 var(--border-radius-lg);
         }
 
-        .footer-content {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          justify-content: space-between;
+        .lobby.with-rooms .lobby-footer {
+          border-radius: 0 0 var(--border-radius-lg) 0;
         }
 
-        .footer-left {
+        .lobby.with-chat.with-rooms .lobby-footer {
+          border-radius: 0;
+        }
+
+        .footer-content {
           display: flex;
           align-items: center;
           gap: 12px;

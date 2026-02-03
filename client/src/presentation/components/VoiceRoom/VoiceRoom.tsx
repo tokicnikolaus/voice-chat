@@ -2,10 +2,8 @@ import { useRoomStore } from '@/application/stores/roomStore';
 import { useCallback, useEffect, useState } from 'react';
 import { useWebSocket } from '@/application/hooks/useWebSocket';
 import { useVoiceRoom } from '@/application/hooks/useVoiceRoom';
-import { usePushToTalk } from '@/application/hooks/usePushToTalk';
 import { useChat } from '@/application/hooks/useChat';
 import { ParticipantGrid } from './ParticipantGrid';
-import { AudioControls } from '@/presentation/components/Controls/AudioControls';
 import { DeviceSelector } from '@/presentation/components/Controls/DeviceSelector';
 import { ChatPanel } from '@/presentation/components/Chat';
 import { getToneGenerator } from '@/infrastructure/audio/toneGenerator';
@@ -17,8 +15,7 @@ import { LiveKitStatus } from './LiveKitStatus';
 export function VoiceRoom() {
   const { currentRoom, participants } = useRoomStore();
   const { requestLeaveRoom } = useWebSocket();
-  const { isMuted, toggleMute } = useVoiceRoom();
-  const { isPTTActive, isEnabled: showSpaceToTalkHint } = usePushToTalk();
+  const { toggleMute } = useVoiceRoom();
   const { isPanelOpen, unreadCount, togglePanel } = useChat();
   const [showDeviceSelector, setShowDeviceSelector] = useState(false);
 
@@ -126,16 +123,8 @@ export function VoiceRoom() {
 
         <footer className="room-footer">
           <div className="footer-content">
-            <div className="footer-left">
-              <LiveKitStatus />
-              <MicrophoneLevel />
-            </div>
-            <AudioControls
-              isMuted={isMuted}
-              isPTTActive={isPTTActive}
-              showSpaceToTalkHint={showSpaceToTalkHint}
-              onToggleMute={toggleMute}
-            />
+            <LiveKitStatus onToggleMute={toggleMute} />
+            <MicrophoneLevel />
           </div>
         </footer>
       </div>
@@ -295,13 +284,6 @@ export function VoiceRoom() {
         }
 
         .footer-content {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          justify-content: space-between;
-        }
-
-        .footer-left {
           display: flex;
           align-items: center;
           gap: 12px;

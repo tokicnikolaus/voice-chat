@@ -42,6 +42,22 @@ export function LobbyHeader({
             </span>
           </div>
         </div>
+        <button
+          className={`rooms-toggle-btn ${isRoomsOpen ? 'active' : ''}`}
+          onClick={onToggleRooms}
+          title={isRoomsOpen ? 'Hide rooms' : 'Show rooms'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <polyline points="9 22 9 12 15 12 15 22" />
+          </svg>
+          <span>Rooms</span>
+          {roomCount > 0 && (
+            <span className="room-badge">
+              {roomCount}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="header-right">
@@ -54,21 +70,6 @@ export function LobbyHeader({
             <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
             <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
           </svg>
-        </button>
-        <button
-          className={`header-icon-btn ${isRoomsOpen ? 'active' : ''}`}
-          onClick={onToggleRooms}
-          title={isRoomsOpen ? 'Close rooms' : 'Browse rooms'}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            <polyline points="9 22 9 12 15 12 15 22" />
-          </svg>
-          {roomCount > 0 && (
-            <span className="room-badge">
-              {roomCount}
-            </span>
-          )}
         </button>
         <button
           className={`header-icon-btn ${isChatOpen ? 'active' : ''}`}
@@ -114,6 +115,60 @@ export function LobbyHeader({
           display: flex;
           align-items: center;
           gap: 16px;
+        }
+
+        .rooms-toggle-btn {
+          position: relative;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 14px;
+          border: 1px solid var(--border-color);
+          background: var(--bg-tertiary);
+          color: var(--text-secondary);
+          cursor: pointer;
+          border-radius: var(--border-radius);
+          transition: all var(--transition-fast);
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        .rooms-toggle-btn:hover {
+          border-color: var(--accent-primary);
+          color: var(--accent-primary);
+          background: var(--bg-hover);
+        }
+
+        .rooms-toggle-btn.active {
+          background: var(--accent-primary);
+          border-color: var(--accent-primary);
+          color: white;
+        }
+
+        .rooms-toggle-btn svg {
+          flex-shrink: 0;
+        }
+
+        .rooms-toggle-btn .room-badge {
+          position: absolute;
+          top: -6px;
+          right: -6px;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          background: var(--accent-primary);
+          color: white;
+          font-size: 11px;
+          font-weight: 600;
+          border-radius: 9px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .rooms-toggle-btn.active .room-badge {
+          background: white;
+          color: var(--accent-primary);
         }
 
         .logo-section {

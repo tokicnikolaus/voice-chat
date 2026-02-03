@@ -107,6 +107,24 @@ export class ToneGenerator {
   }
 
   /**
+   * Set the volume of the background audio (0 to 1)
+   * Use 0 to mute, or restore to previous volume to unmute
+   */
+  setVolume(volume: number): void {
+    if (this.audioElement) {
+      this.audioElement.volume = Math.max(0, Math.min(1, volume));
+      console.log(`Background audio volume set to: ${volume}`);
+    }
+  }
+
+  /**
+   * Get the current volume
+   */
+  getVolume(): number {
+    return this.audioElement?.volume ?? 0;
+  }
+
+  /**
    * Check if audio is currently playing
    */
   getIsPlaying(): boolean {

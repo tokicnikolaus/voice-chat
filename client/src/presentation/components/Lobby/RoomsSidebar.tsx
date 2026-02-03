@@ -76,20 +76,34 @@ export function RoomsSidebar({ rooms, onJoinRoom, onCreateRoom, onClose }: Rooms
           display: flex;
           flex-direction: column;
           background: var(--bg-secondary);
-          border-left: 1px solid var(--border-color);
+          border-right: 1px solid var(--border-color);
           overflow: hidden;
+          animation: slideInLeft 0.2s ease-out;
+        }
+
+        @keyframes slideInLeft {
+          from {
+            transform: translateX(-100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
         }
 
         .sidebar-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 16px 20px;
+          padding: var(--header-padding);
+          height: var(--header-height);
+          box-sizing: border-box;
           border-bottom: 1px solid var(--border-color);
         }
 
         .sidebar-header h2 {
-          font-size: 16px;
+          font-size: 18px;
           font-weight: 600;
           margin: 0;
         }

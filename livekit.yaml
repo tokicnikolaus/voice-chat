@@ -32,3 +32,11 @@ logging:
 
 # Region (for display purposes)
 region: local
+
+# Webhooks - notify Go server of room/participant events
+webhook:
+  # URL of your Go server's webhook endpoint
+  urls:
+    - "http://server:8080/webhooks/livekit"
+  # Must match LIVEKIT_API_KEY in your Go server config
+  api_key: devkey

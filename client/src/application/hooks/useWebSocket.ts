@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef } from 'react';
 import { getWebSocketService } from '@/infrastructure/websocket/WebSocketService';
 import { useRoomStore } from '@/application/stores/roomStore';
 import { useChatStore } from '@/application/stores/chatStore';
+import { useSettingsStore } from '@/application/stores/settingsStore';
 import { getToneGenerator } from '@/infrastructure/audio/toneGenerator';
 import type { WebSocketMessage, JoinRoomResponse, ChatMessage, SystemMessage, DisplayMessage } from '@/domain/types';
 
@@ -159,9 +160,11 @@ export function useWebSocket() {
           console.log('Received play_test_tone message from server', payload);
           const toneGen = getToneGenerator();
           // Play background audio (loops continuously)
-          // Volume is set lower for ambient background music
+          // Volume is set lower for ambient background music, and respects speaker volume
+          const speakerVolume = useSettingsStore.getState().speakerVolume;
+          const backgroundMusicVolume = 0.2 * (speakerVolume / 100);
           console.log('🎵 Starting background audio (Dagored - Quiet Fields)');
-          toneGen.start(440, undefined, 0.2).then(() => {
+          toneGen.start(440, undefined, backgroundMusicVolume).then(() => {
             console.log('✅ Background audio started successfully');
           }).catch((err) => {
             console.warn('⚠️ Failed to start background audio (may need user interaction):', err.message || err);

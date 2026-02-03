@@ -14,6 +14,7 @@ import (
 	"voice-chat/internal/domain/entity"
 	"voice-chat/internal/domain/repository"
 	"voice-chat/internal/infrastructure/livekit"
+	"voice-chat/internal/infrastructure/notification"
 	"voice-chat/internal/infrastructure/persistence"
 	"voice-chat/internal/interface/handler"
 	"voice-chat/internal/usecase/admin"
@@ -33,6 +34,14 @@ func main() {
 	userRepo := persistence.NewInMemoryUserRepository()
 	banRepo := persistence.NewInMemoryBanRepository()
 	activityRepo := persistence.NewInMemoryActivityRepository()
+	analyticsRepo := persistence.NewInMemoryAnalyticsRepository()
+
+	// Initialize notification service
+	notifyService := notification.NewNotificationService()
+	if cfg.WebhookURL != "" {
+		notifyService.AddWebhookEndpoint("default", cfg.WebhookURL, cfg.WebhookSecret)
+		log.Printf("Notification webhook configured: %s", cfg.WebhookURL)
+	}
 
 	// Initialize chat repository (Redis if enabled, otherwise in-memory)
 	var chatRepo repository.ChatRepository
@@ -91,6 +100,14 @@ func main() {
 		cfg,
 	)
 
+	// Initialize LiveKit webhook handler
+	webhookHandler := handler.NewLiveKitWebhookHandler(
+		roomRepo,
+		analyticsRepo,
+		notifyService,
+		cfg,
+	)
+
 	// Setup HTTP routes
 	mux := http.NewServeMux()
 
@@ -103,8 +120,16 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Auth proxy endpoint to bypass CORS (proxies /api/auth/* to auth.staging.gamebay.io/auth/*)
-	mux.HandleFunc("/api/", handleAuthProxy)
+	// LiveKit webhook endpoint (receives events from LiveKit server)
+	mux.HandleFunc("/webhooks/livekit", webhookHandler.HandleWebhook)
+
+	// Analytics endpoint (get room duration stats)
+	mux.HandleFunc("/api/analytics", webhookHandler.GetAnalytics)
+
+	// Auth proxy endpoint to bypass CORS (proxies /api/* to configured auth API)
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		handleAuthProxy(w, r, cfg)
+	})
 
 	// CORS middleware
 	corsHandler := corsMiddleware(mux)
@@ -126,6 +151,9 @@ func main() {
 
 	// Start activity log cleanup goroutine
 	go startActivityCleanup(activityRepo, cfg.ActivityLogHours)
+
+	// Start analytics cleanup goroutine
+	go startAnalyticsCleanup(analyticsRepo, cfg.ActivityLogHours)
 
 	// Start server in goroutine
 	go func() {
@@ -223,12 +251,24 @@ func startActivityCleanup(activityRepo *persistence.InMemoryActivityRepository, 
 	}
 }
 
-// handleAuthProxy proxies auth requests to api.staging.gamebay.io to bypass CORS
-func handleAuthProxy(w http.ResponseWriter, r *http.Request) {
-	// Extract the path after /api/ and prepend /v1
-	// /api/auth/login -> /v1/auth/login
+func startAnalyticsCleanup(analyticsRepo *persistence.InMemoryAnalyticsRepository, hoursToKeep int) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		count := analyticsRepo.Cleanup(hoursToKeep)
+		if count > 0 {
+			log.Printf("Cleaned up %d old analytics records", count)
+		}
+	}
+}
+
+// handleAuthProxy proxies auth requests to configured auth API to bypass CORS
+func handleAuthProxy(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
+	// Extract the path after /api/
+	// /api/auth/login -> /v1/auth/login (if base URL includes /v1)
 	path := strings.TrimPrefix(r.URL.Path, "/api")
-	targetURL := "https://api.staging.gamebay.io/v1" + path
+	targetURL := cfg.AuthAPIBaseURL + path
 
 	log.Printf("Auth proxy: %s %s -> %s", r.Method, r.URL.Path, targetURL)
 

@@ -37,6 +37,13 @@ type Config struct {
 	RedisAddr     string
 	RedisPassword string
 	RedisDB       int
+
+	// Webhook settings (for external notifications)
+	WebhookURL    string // External webhook URL to receive notifications
+	WebhookSecret string // HMAC secret for webhook signature verification
+
+	// Auth API settings
+	AuthAPIBaseURL string // Base URL for auth API
 }
 
 // Load loads configuration from environment variables
@@ -70,6 +77,13 @@ func Load() *Config {
 		RedisAddr:     getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword: getEnv("REDIS_PASSWORD", ""),
 		RedisDB:       getEnvInt("REDIS_DB", 0),
+
+		// Webhooks (for external notifications when users disconnect, rooms close, etc.)
+		WebhookURL:    getEnv("WEBHOOK_URL", ""),
+		WebhookSecret: getEnv("WEBHOOK_SECRET", ""),
+
+		// Auth API
+		AuthAPIBaseURL: getEnv("AUTH_API_BASE_URL", ""),
 	}
 }
 
