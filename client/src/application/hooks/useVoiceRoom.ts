@@ -13,7 +13,7 @@ export function useVoiceRoom() {
     setSpeaking,
     setConnectionQuality,
   } = useRoomStore();
-  const { masterVolume, userVolumes, audioInputDeviceId, audioOutputDeviceId } = useSettingsStore();
+  const { masterVolume, userVolumes, audioInputDeviceId, audioOutputDeviceId, speakerVolume, setSpeakerVolume, microphoneSensitivity, setMicrophoneSensitivity } = useSettingsStore();
   
   // Store previous room ID to detect actual room changes
   const previousRoomIdRef = useRef<string | null>(null);
@@ -84,7 +84,7 @@ export function useVoiceRoom() {
         unsubQuality();
       };
     }
-    
+
     if (previousRoomIdRef.current === currentRoomId && isConnectingRef.current) {
       console.log('🔄 Same room ID and already connecting (legacy check), skipping duplicate connection attempt');
       // Still set up event handlers in case they were cleared
@@ -125,7 +125,7 @@ export function useVoiceRoom() {
     console.log('LiveKit URL:', lkUrl);
     console.log('Token length:', currentRoom.livekitToken?.length || 0);
     console.log('Room ID:', currentRoomId);
-    
+
     // Handle speaking events
     const unsubSpeaking = service.onParticipantSpeaking((participantId, speaking) => {
       if (isMounted) {
@@ -182,6 +182,22 @@ export function useVoiceRoom() {
           }
         } catch (error) {
           console.error('Failed to apply output device settings:', error);
+        }
+
+        // Initialize volume settings in VoiceService
+        const voiceServiceAny = service as any;
+        if (voiceServiceAny.updateVolumeSettings) {
+          const currentMasterVolume = useSettingsStore.getState().masterVolume;
+          const currentUserVolumes = useSettingsStore.getState().userVolumes;
+          voiceServiceAny.updateVolumeSettings(currentMasterVolume, currentUserVolumes);
+        }
+        if (voiceServiceAny.setSpeakerVolume) {
+          const currentSpeakerVolume = useSettingsStore.getState().speakerVolume;
+          voiceServiceAny.setSpeakerVolume(currentSpeakerVolume);
+        }
+        if (voiceServiceAny.setMicrophoneSensitivity) {
+          const currentMicrophoneSensitivity = useSettingsStore.getState().microphoneSensitivity;
+          voiceServiceAny.setMicrophoneSensitivity(currentMicrophoneSensitivity);
         }
       })
       .catch((error) => {
@@ -255,17 +271,37 @@ export function useVoiceRoom() {
     }
   }, [isMuted, setMuted]);
 
-  // Apply volume changes
+  // Apply volume changes (respect speaker volume)
   useEffect(() => {
     const service = voiceService.current;
-    const participants = service.getRemoteParticipants();
+    
+    // Update VoiceService with current volume settings and speaker volume
+    // This ensures new tracks that subscribe will also get the correct volume
+    const voiceServiceAny = service as any;
+    if (voiceServiceAny.updateVolumeSettings) {
+      voiceServiceAny.updateVolumeSettings(masterVolume, userVolumes);
+    }
+    if (voiceServiceAny.setSpeakerVolume) {
+      voiceServiceAny.setSpeakerVolume(speakerVolume);
+    }
 
+    // Apply volumes to all existing participants (VoiceService will handle speaker volume internally)
+    const participants = service.getRemoteParticipants();
     participants.forEach((_, participantId) => {
       const userVolume = userVolumes[participantId] ?? 100;
       const finalVolume = (masterVolume / 100) * (userVolume / 100);
+      // setParticipantVolume now applies speaker volume multiplier internally
       service.setParticipantVolume(participantId, finalVolume);
     });
-  }, [masterVolume, userVolumes]);
+
+    // Also control background music volume based on speaker volume
+    const toneGen = getToneGenerator();
+    // Apply speaker volume to background music (0.2 is base volume, multiply by speakerVolume/100)
+    const backgroundMusicVolume = 0.2 * (speakerVolume / 100);
+    if (toneGen.getIsPlaying()) {
+      toneGen.setVolume(backgroundMusicVolume);
+    }
+  }, [masterVolume, userVolumes, speakerVolume]);
 
   const toggleMute = useCallback(() => {
     setMuted(!isMuted);
@@ -279,10 +315,27 @@ export function useVoiceRoom() {
     setMuted(false);
   }, [setMuted]);
 
+  // Apply microphone sensitivity changes
+  useEffect(() => {
+    const service = voiceService.current;
+    if (service.isConnected() && service.isMicrophoneEnabled()) {
+      const voiceServiceAny = service as any;
+      if (voiceServiceAny.setMicrophoneSensitivity) {
+        voiceServiceAny.setMicrophoneSensitivity(microphoneSensitivity).catch((error: any) => {
+          console.error('Failed to set microphone sensitivity:', error);
+        });
+      }
+    }
+  }, [microphoneSensitivity]);
+
   return {
     isMuted,
     toggleMute,
     mute,
     unmute,
+    speakerVolume,
+    setSpeakerVolume,
+    microphoneSensitivity,
+    setMicrophoneSensitivity,
   };
 }

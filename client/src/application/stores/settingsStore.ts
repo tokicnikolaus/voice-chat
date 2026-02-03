@@ -15,6 +15,8 @@ export interface SettingsState {
 
   // Sound effects
   soundEffectsEnabled: boolean;
+  speakerVolume: number;
+  microphoneSensitivity: number;
 
   // UI settings
   theme: 'dark' | 'light';
@@ -30,6 +32,8 @@ export interface SettingsState {
   setAudioInputDeviceId: (deviceId: string | null) => void;
   setAudioOutputDeviceId: (deviceId: string | null) => void;
   setSoundEffectsEnabled: (enabled: boolean) => void;
+  setSpeakerVolume: (volume: number) => void;
+  setMicrophoneSensitivity: (sensitivity: number) => void;
   setTheme: (theme: 'dark' | 'light') => void;
   setLastUsername: (username: string) => void;
   resetVolumes: () => void;
@@ -45,6 +49,8 @@ export const useSettingsStore = create<SettingsState>()(
       audioInputDeviceId: null,
       audioOutputDeviceId: null,
       soundEffectsEnabled: true,
+      speakerVolume: 100,
+      microphoneSensitivity: 100,
       theme: 'dark',
       lastUsername: '',
 
@@ -67,6 +73,10 @@ export const useSettingsStore = create<SettingsState>()(
       setAudioOutputDeviceId: (deviceId) => set({ audioOutputDeviceId: deviceId }),
 
       setSoundEffectsEnabled: (enabled) => set({ soundEffectsEnabled: enabled }),
+
+      setSpeakerVolume: (volume) => set({ speakerVolume: Math.max(0, Math.min(100, volume)) }),
+
+      setMicrophoneSensitivity: (sensitivity) => set({ microphoneSensitivity: Math.max(0, Math.min(200, sensitivity)) }),
 
       setTheme: (theme) => set({ theme }),
 

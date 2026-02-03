@@ -2,10 +2,8 @@ import { useRoomStore } from '@/application/stores/roomStore';
 import { useCallback, useEffect, useState } from 'react';
 import { useWebSocket } from '@/application/hooks/useWebSocket';
 import { useVoiceRoom } from '@/application/hooks/useVoiceRoom';
-import { usePushToTalk } from '@/application/hooks/usePushToTalk';
 import { useChat } from '@/application/hooks/useChat';
 import { ParticipantGrid } from './ParticipantGrid';
-import { AudioControls } from '@/presentation/components/Controls/AudioControls';
 import { DeviceSelector } from '@/presentation/components/Controls/DeviceSelector';
 import { ChatPanel } from '@/presentation/components/Chat';
 import { getToneGenerator } from '@/infrastructure/audio/toneGenerator';
@@ -17,19 +15,19 @@ import { LiveKitStatus } from './LiveKitStatus';
 export function VoiceRoom() {
   const { currentRoom, participants } = useRoomStore();
   const { requestLeaveRoom } = useWebSocket();
-  const { isMuted, toggleMute } = useVoiceRoom();
-  const { isPTTActive, isEnabled: showSpaceToTalkHint } = usePushToTalk();
+  const { toggleMute } = useVoiceRoom();
   const { isPanelOpen, unreadCount, togglePanel } = useChat();
   const [showDeviceSelector, setShowDeviceSelector] = useState(false);
 
-  // Disconnect LiveKit (release mic) first, then tell server we left — so mic is off before join screen
-  const handleLeaveRoom = useCallback(async () => {
+  // Back to Lobby: leave current room and return to lobby
+  const handleBackToLobby = useCallback(async () => {
     const toneGen = getToneGenerator();
     if (toneGen.getIsPlaying()) {
       toneGen.stop();
     }
     await getVoiceService().disconnect().catch(console.error);
     requestLeaveRoom();
+    // After leaving, the App will show Lobby which will auto-join
   }, [requestLeaveRoom]);
 
   // Unlock AudioContext on room join (required for background music to work later)
@@ -108,8 +106,12 @@ export function VoiceRoom() {
                 </span>
               )}
             </button>
-            <button className="btn btn-secondary leave-btn" onClick={handleLeaveRoom}>
-              Leave Room
+            <button className="btn btn-secondary back-btn" onClick={handleBackToLobby}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
+              Back to Lobby
             </button>
           </div>
         </header>
@@ -121,16 +123,8 @@ export function VoiceRoom() {
 
         <footer className="room-footer">
           <div className="footer-content">
-            <div className="footer-left">
-              <LiveKitStatus />
-              <MicrophoneLevel />
-            </div>
-            <AudioControls
-              isMuted={isMuted}
-              isPTTActive={isPTTActive}
-              showSpaceToTalkHint={showSpaceToTalkHint}
-              onToggleMute={toggleMute}
-            />
+            <LiveKitStatus onToggleMute={toggleMute} />
+            <MicrophoneLevel />
           </div>
         </footer>
       </div>
@@ -248,8 +242,10 @@ export function VoiceRoom() {
           justify-content: center;
         }
 
-        .leave-btn {
-          color: var(--error);
+        .back-btn {
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
 
         .device-selector-overlay {
@@ -288,13 +284,6 @@ export function VoiceRoom() {
         }
 
         .footer-content {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          justify-content: space-between;
-        }
-
-        .footer-left {
           display: flex;
           align-items: center;
           gap: 12px;

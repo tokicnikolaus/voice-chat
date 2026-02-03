@@ -35,3 +35,6 @@ logs/
 .env
 .env.local
 .env.*.local
+docker-compose.prod.yml
+terraform/
+./client/login_export/

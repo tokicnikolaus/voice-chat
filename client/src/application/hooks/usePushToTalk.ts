@@ -2,65 +2,90 @@ import { useEffect, useCallback, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useRoomStore } from '@/application/stores/roomStore';
 import { useSettingsStore } from '@/application/stores/settingsStore';
+import { getVoiceService } from '@/infrastructure/livekit/VoiceService';
 
 const PTT_TIMEOUT_MS = 30000; // 30 seconds
 
 /**
- * When user is muted, holding the PTT key (default Space) temporarily unmutes (push-to-talk).
- * When unmuted normally, the key has no effect.
+ * Push-to-talk: Hold Space (or configured key) to transmit.
+ * Mic is muted by default, unmutes while key is held.
  */
 export function usePushToTalk() {
-  const { isMuted, setMuted, setSpeaking, userId } = useRoomStore();
+  const { setMuted, setSpeaking, userId } = useRoomStore();
   const { pttKey } = useSettingsStore();
 
   const [isPTTActive, setIsPTTActive] = useState(false);
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
   const timeoutRef = useRef<number | null>(null);
   const pttStartTimeRef = useRef<number | null>(null);
-  const pttSessionRef = useRef(false);
 
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
+    async (e: KeyboardEvent) => {
       if (e.code !== pttKey) return;
       if (e.repeat) return;
-      // Only act when muted: Space (or PTT key) = temporary unmute
-      if (!isMuted) return;
+      // Don't trigger PTT when typing in input fields
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
 
       e.preventDefault();
 
+      // Set state immediately for visual feedback
       flushSync(() => {
-        pttSessionRef.current = true;
         setIsPTTActive(true);
         setMuted(false);
         if (userId) {
           setSpeaking(userId, true);
         }
       });
+
+      // Directly enable microphone for immediate audio
+      try {
+        const voiceService = getVoiceService();
+        if (voiceService.isConnected()) {
+          await voiceService.setMicrophoneEnabled(true);
+        }
+      } catch (error) {
+        console.error('Failed to enable mic for PTT:', error);
+      }
+
       pttStartTimeRef.current = Date.now();
 
       timeoutRef.current = window.setTimeout(() => {
         setShowTimeoutWarning(true);
       }, PTT_TIMEOUT_MS);
     },
-    [isMuted, pttKey, setMuted, setSpeaking, userId]
+    [pttKey, setMuted, setSpeaking, userId]
   );
 
   const handleKeyUp = useCallback(
-    (e: KeyboardEvent) => {
+    async (e: KeyboardEvent) => {
       if (e.code !== pttKey) return;
+      if (!isPTTActive) return; // Only process if PTT was active
 
-      const wasPTTSession = pttSessionRef.current;
-      pttSessionRef.current = false;
+      e.preventDefault();
+
+      // Set state immediately
       flushSync(() => {
         setIsPTTActive(false);
         setShowTimeoutWarning(false);
-        if (wasPTTSession) {
-          setMuted(true);
-          if (userId) {
-            setSpeaking(userId, false);
-          }
+        setMuted(true);
+        if (userId) {
+          setSpeaking(userId, false);
         }
       });
+
+      // Directly disable microphone
+      try {
+        const voiceService = getVoiceService();
+        if (voiceService.isConnected()) {
+          await voiceService.setMicrophoneEnabled(false);
+        }
+      } catch (error) {
+        console.error('Failed to disable mic after PTT:', error);
+      }
+
       pttStartTimeRef.current = null;
 
       if (timeoutRef.current) {
@@ -68,7 +93,7 @@ export function usePushToTalk() {
         timeoutRef.current = null;
       }
     },
-    [pttKey, setMuted, setSpeaking, userId]
+    [pttKey, isPTTActive, setMuted, setSpeaking, userId]
   );
 
   useEffect(() => {
@@ -98,7 +123,5 @@ export function usePushToTalk() {
     showTimeoutWarning,
     dismissTimeoutWarning,
     getPTTDuration,
-    /** True when muted and holding PTT key to talk */
-    isEnabled: isMuted,
   };
 }

@@ -1,0 +1,38 @@
+# =============================================================================
+# LiveKit Production Configuration
+# =============================================================================
+#
+# IMPORTANT: Replace NODE_IP_PLACEHOLDER with your EC2 Elastic IP
+# This is required for WebRTC to establish direct connections.
+#
+# Example: If your Elastic IP is 52.59.123.45, set node_ip: 52.59.123.45
+# =============================================================================
+
+port: 7880
+log_level: info
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 7882
+  port_range_end: 7892
+  # CRITICAL: Set this to your EC2 Elastic IP for WebRTC to work
+  # WebRTC clients will connect directly to this IP for media streams
+  node_ip: NODE_IP_PLACEHOLDER
+  use_external_ip: false
+
+# API keys - CHANGE THESE IN PRODUCTION
+keys:
+  # Format: api_key: api_secret (min 32 characters for secret)
+  devkey: devkey-secret-key-for-livekit-minimum-32-characters-long-required
+  # Add production key:
+  # prodkey: your-production-secret-minimum-32-characters-long
+
+# Room settings
+room:
+  empty_timeout: 300        # 5 minutes
+  max_participants: 50
+
+# Logging
+logging:
+  json: true
+  level: info

@@ -4,6 +4,9 @@ export type VoiceMode = 'ptt' | 'vad';
 // Re-export chat types
 export * from './chat';
 
+// Re-export auth types
+export * from './auth';
+
 // Room types
 export type RoomType = 'public' | 'private';
 

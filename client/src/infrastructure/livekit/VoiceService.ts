@@ -10,21 +10,109 @@ import {
   DisconnectReason,
   createLocalAudioTrack,
   Track,
+  LocalAudioTrack,
+  TrackProcessor,
+  AudioProcessorOptions,
 } from 'livekit-client';
 import type { IVoiceService, AudioDevice } from '@/domain/interfaces';
+
+// Custom audio processor for microphone gain control  
+class MicrophoneGainProcessor implements TrackProcessor<Track.Kind, AudioProcessorOptions> {
+  name = 'microphone-gain-processor';
+  private gainNode: GainNode | null = null;
+  private audioContext: AudioContext | null = null;
+  private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private destinationNode: MediaStreamAudioDestinationNode | null = null;
+  private gain: number = 1.0;
+  private _processedTrack: MediaStreamTrack | null = null;
+
+  constructor(gain: number = 1.0) {
+    this.gain = gain;
+  }
+
+  async init(opts: AudioProcessorOptions): Promise<void> {
+    const { track } = opts;
+    
+    if (!track) {
+      throw new Error('Track is required for microphone gain processor');
+    }
+
+    // Create audio context
+    this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    // Create source from the input track
+    this.sourceNode = this.audioContext.createMediaStreamSource(new MediaStream([track]));
+    
+    // Create gain node
+    this.gainNode = this.audioContext.createGain();
+    this.gainNode.gain.value = this.gain;
+    
+    // Create destination
+    this.destinationNode = this.audioContext.createMediaStreamDestination();
+    
+    // Connect: source -> gain -> destination
+    this.sourceNode.connect(this.gainNode);
+    this.gainNode.connect(this.destinationNode);
+    
+    // Get the processed track
+    this._processedTrack = this.destinationNode.stream.getAudioTracks()[0];
+  }
+
+  async restart(opts: AudioProcessorOptions): Promise<void> {
+    await this.destroy();
+    await this.init(opts);
+  }
+
+  async destroy(): Promise<void> {
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
+    }
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
+    }
+    if (this.destinationNode) {
+      this.destinationNode.disconnect();
+      this.destinationNode = null;
+    }
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      await this.audioContext.close();
+      this.audioContext = null;
+    }
+    this._processedTrack = null;
+  }
+
+  setGain(gain: number): void {
+    this.gain = Math.max(0, Math.min(2, gain)); // Clamp between 0 and 2
+    if (this.gainNode) {
+      this.gainNode.gain.value = this.gain;
+    }
+  }
+
+  get processedTrack(): MediaStreamTrack | undefined {
+    return this._processedTrack || undefined;
+  }
+}
 
 type SpeakingHandler = (participantId: string, speaking: boolean) => void;
 type QualityHandler = (participantId: string, quality: number) => void;
 type DataHandler = (data: Uint8Array, participantId: string) => void;
+type ConnectionStateHandler = (connected: boolean) => void;
 
 export class VoiceService implements IVoiceService {
   private room: Room | null = null;
   private speakingHandlers: Set<SpeakingHandler> = new Set();
   private qualityHandlers: Set<QualityHandler> = new Set();
   private dataHandlers: Set<DataHandler> = new Set();
+  private connectionStateHandlers: Set<ConnectionStateHandler> = new Set();
   private connectingPromise: Promise<void> | null = null;
   private currentInputDeviceId: string | null = null;
   private currentOutputDeviceId: string | null = null;
+  private speakerVolume: number = 100;
+  private microphoneSensitivity: number = 100;
+  private microphoneGainProcessor: MicrophoneGainProcessor | null = null;
+  private volumeSettings: { masterVolume: number; userVolumes: Record<string, number> } | null = null;
 
   async connect(url: string, token: string): Promise<void> {
     // CRITICAL: Check for existing connection promise FIRST before doing anything else
@@ -222,6 +310,8 @@ export class VoiceService implements IVoiceService {
         console.error('❌ LiveKit: Error during disconnect:', error);
       }
       this.room = null;
+      // Notify all connection state handlers
+      this.connectionStateHandlers.forEach((handler) => handler(false));
     }
   }
 
@@ -245,6 +335,13 @@ export class VoiceService implements IVoiceService {
     try {
       // Let LiveKit handle getUserMedia - it will request permissions when needed
       await this.room.localParticipant.setMicrophoneEnabled(enabled);
+      
+      // Apply microphone sensitivity after enabling (with a small delay to ensure track is ready)
+      if (enabled && this.microphoneSensitivity !== 100) {
+        setTimeout(() => {
+          this.setMicrophoneSensitivity(this.microphoneSensitivity).catch(console.error);
+        }, 100);
+      }
     } catch (error: any) {
       console.error('Failed to set microphone enabled:', error);
       
@@ -268,6 +365,53 @@ export class VoiceService implements IVoiceService {
 
   isMicrophoneEnabled(): boolean {
     return this.room?.localParticipant?.isMicrophoneEnabled ?? false;
+  }
+
+  /**
+   * Set microphone sensitivity/gain (0-200, where 100 is normal)
+   * Uses Web Audio API processor to apply gain to the microphone track
+   */
+  async setMicrophoneSensitivity(sensitivity: number): Promise<void> {
+    if (!this.room?.localParticipant) {
+      // Store the sensitivity for when microphone is enabled
+      this.microphoneSensitivity = Math.max(0, Math.min(200, sensitivity));
+      return;
+    }
+
+    this.microphoneSensitivity = Math.max(0, Math.min(200, sensitivity));
+    const gain = this.microphoneSensitivity / 100; // Convert 0-200 to 0-2 gain
+
+    try {
+      // Get the local microphone track
+      const audioTracks = Array.from(this.room.localParticipant.audioTrackPublications.values());
+      const micPublication = audioTracks.find(
+        (pub) => pub.track && pub.source === Track.Source.Microphone
+      );
+
+      if (micPublication?.track && micPublication.track instanceof LocalAudioTrack) {
+        const track = micPublication.track;
+        
+        // Create or update gain processor
+        if (!this.microphoneGainProcessor) {
+          this.microphoneGainProcessor = new MicrophoneGainProcessor(gain);
+          // Apply processor to track
+          try {
+            track.setProcessor(this.microphoneGainProcessor);
+            console.log('Microphone gain processor applied, gain:', gain);
+          } catch (error) {
+            console.warn('Failed to set processor, trying alternative method:', error);
+            // If setProcessor fails, we'll need to recreate the track with gain
+            // For now, just log - the gain will be applied when track is recreated
+          }
+        } else {
+          this.microphoneGainProcessor.setGain(gain);
+          console.log('Microphone gain updated to:', gain);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to set microphone sensitivity:', error);
+      // Don't throw - sensitivity will be applied when track is available
+    }
   }
 
   async enumerateAudioDevices(): Promise<AudioDevice[]> {
@@ -308,6 +452,21 @@ export class VoiceService implements IVoiceService {
         echoCancellation: true,
         noiseSuppression: true,
       });
+
+      // Apply microphone sensitivity if set
+      if (this.microphoneSensitivity !== 100) {
+        const gain = this.microphoneSensitivity / 100;
+        if (!this.microphoneGainProcessor) {
+          this.microphoneGainProcessor = new MicrophoneGainProcessor(gain);
+        } else {
+          this.microphoneGainProcessor.setGain(gain);
+        }
+        try {
+          track.setProcessor(this.microphoneGainProcessor);
+        } catch (error) {
+          console.warn('Failed to apply gain processor to new track:', error);
+        }
+      }
 
       // Replace the existing microphone track
       const existingPublications = Array.from(this.room.localParticipant.audioTrackPublications.values());
@@ -387,6 +546,15 @@ export class VoiceService implements IVoiceService {
     };
   }
 
+  onConnectionStateChange(handler: ConnectionStateHandler): () => void {
+    this.connectionStateHandlers.add(handler);
+    // Immediately call with current state
+    handler(this.isConnected());
+    return () => {
+      this.connectionStateHandlers.delete(handler);
+    };
+  }
+
   setParticipantVolume(participantId: string, volume: number): void {
     if (!this.room) return;
 
@@ -395,10 +563,43 @@ export class VoiceService implements IVoiceService {
       participant.audioTrackPublications.forEach((publication) => {
         const track = publication.track;
         if (track && track instanceof RemoteAudioTrack) {
-          track.setVolume(volume);
+          // Apply speaker volume multiplier (0-100 -> 0-1)
+          const finalVolume = volume * (this.speakerVolume / 100);
+          track.setVolume(finalVolume);
         }
       });
     }
+  }
+
+  /**
+   * Set speaker volume (0-100) and apply to all participants
+   */
+  setSpeakerVolume(volume: number): void {
+    this.speakerVolume = Math.max(0, Math.min(100, volume));
+    // Apply to all existing participants
+    this.applyVolumeSettings();
+  }
+
+  /**
+   * Update volume settings and apply to all participants
+   */
+  updateVolumeSettings(masterVolume: number, userVolumes: Record<string, number>): void {
+    this.volumeSettings = { masterVolume, userVolumes };
+    this.applyVolumeSettings();
+  }
+
+  /**
+   * Apply current volume settings to all participants (respects speaker volume)
+   */
+  private applyVolumeSettings(): void {
+    if (!this.room || !this.volumeSettings) return;
+
+    const participants = this.room.remoteParticipants;
+    participants.forEach((_participant, participantId) => {
+      const userVolume = this.volumeSettings!.userVolumes[participantId] ?? 100;
+      const finalVolume = (this.volumeSettings!.masterVolume / 100) * (userVolume / 100);
+      this.setParticipantVolume(participantId, finalVolume);
+    });
   }
 
   private setupEventHandlers(): void {
@@ -417,6 +618,9 @@ export class VoiceService implements IVoiceService {
       
       console.log('🔴 LiveKit room disconnected:', reason, 'Reason code:', reason);
       console.log('Room state after disconnect:', this.room?.state);
+      
+      // Notify all connection state handlers
+      this.connectionStateHandlers.forEach((handler) => handler(false));
       
       if (reason === DisconnectReason.CLIENT_INITIATED) {
         console.log('Disconnect was client-initiated (normal)');
@@ -459,6 +663,8 @@ export class VoiceService implements IVoiceService {
       console.log('Room name:', this.room.name);
       console.log('Local participant:', this.room.localParticipant?.identity);
       console.log('Room state:', this.room.state);
+      // Notify all connection state handlers
+      this.connectionStateHandlers.forEach((handler) => handler(true));
     });
 
     // Speaking events
@@ -508,6 +714,20 @@ export class VoiceService implements IVoiceService {
           (element as any).setSinkId(this.currentOutputDeviceId).catch((err: Error) => {
             console.error('Failed to set sink ID for new track:', err);
           });
+        }
+
+        // Apply current volume settings (including speaker volume) to the new track
+        if (participant) {
+          if (this.volumeSettings) {
+            const userVolume = this.volumeSettings.userVolumes[participant.identity] ?? 100;
+            const baseVolume = (this.volumeSettings.masterVolume / 100) * (userVolume / 100);
+            // Apply speaker volume multiplier
+            const finalVolume = baseVolume * (this.speakerVolume / 100);
+            track.setVolume(finalVolume);
+          } else {
+            // Default to full volume with speaker volume applied if no settings yet
+            track.setVolume(1.0 * (this.speakerVolume / 100));
+          }
         }
       }
     });

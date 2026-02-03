@@ -265,20 +265,20 @@ func (h *WebSocketHandler) handleJoinRoom(client *Client, payload json.RawMessag
 	// Start test tone sender to monitor for changes
 	go h.startTestToneSender(client)
 
-	// Send join response
+	// Send join response (use public URL for clients)
 	h.sendToClient(client, "room_joined", dto.JoinRoomResponse{
 		RoomID:       result.Room.ID,
 		RoomName:     result.Room.Name,
 		UserID:       result.User.ID,
 		UserName:     result.User.Name,
 		LiveKitToken: token,
-		LiveKitURL:   h.config.LiveKitURL,
+		LiveKitURL:   h.config.LiveKitPublicURL,
 		Participants: dto.ToParticipantDTOs(result.Participants),
 		IsNewRoom:    result.IsNewRoom,
 	})
 
 	log.Printf("Sent room_joined response: UserID=%s, RoomID=%s, LiveKitURL=%s",
-		client.UserID, result.Room.ID, h.config.LiveKitURL)
+		client.UserID, result.Room.ID, h.config.LiveKitPublicURL)
 
 	// Send chat history to the joining user
 	chatHistory, err := h.chatRepo.GetMessages(result.Room.ID, repository.DefaultChatHistoryLimit)

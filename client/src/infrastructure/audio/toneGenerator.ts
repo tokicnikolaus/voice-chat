@@ -88,20 +88,40 @@ export class ToneGenerator {
    * Stop playing the background audio
    */
   stop(): void {
-    if (!this.isPlaying && !this.audioElement) {
-      return;
-    }
-
     try {
       if (this.audioElement) {
         this.audioElement.pause();
         this.audioElement.currentTime = 0; // Reset to beginning
+        // Remove the audio element completely to ensure cleanup
+        this.audioElement.src = '';
+        this.audioElement = null;
       }
       this.isPlaying = false;
       console.log('Background audio stopped');
     } catch (error) {
       console.error('Failed to stop background audio:', error);
+      // Force cleanup even on error
+      this.audioElement = null;
+      this.isPlaying = false;
     }
+  }
+
+  /**
+   * Set the volume of the background audio (0 to 1)
+   * Use 0 to mute, or restore to previous volume to unmute
+   */
+  setVolume(volume: number): void {
+    if (this.audioElement) {
+      this.audioElement.volume = Math.max(0, Math.min(1, volume));
+      console.log(`Background audio volume set to: ${volume}`);
+    }
+  }
+
+  /**
+   * Get the current volume
+   */
+  getVolume(): number {
+    return this.audioElement?.volume ?? 0;
   }
 
   /**

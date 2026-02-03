@@ -4,7 +4,7 @@ services:
   # LiveKit SFU Server
   livekit:
     image: livekit/livekit-server:latest
-    command: --config /etc/livekit.yaml --node-ip 192.168.1.154
+    command: --config /etc/livekit.yaml --node-ip 192.168.0.130
     restart: always
     ports:
       - "7880:7880"             # HTTP API
@@ -36,6 +36,7 @@ services:
     environment:
       - SERVER_PORT=8080
       - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_PUBLIC_URL=ws://192.168.0.130:7880
       - LIVEKIT_API_KEY=devkey
       - LIVEKIT_API_SECRET=devkey-secret-key-for-livekit-minimum-32-characters-long-required
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
@@ -47,6 +48,7 @@ services:
       - REDIS_ADDR=redis:6379
       - REDIS_PASSWORD=
       - REDIS_DB=0
+      - AUTH_API_BASE_URL=${AUTH_API_BASE_URL}
     depends_on:
       - livekit
       - redis
