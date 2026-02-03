@@ -498,18 +498,16 @@ export class VoiceService implements IVoiceService {
     this.room.on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
       console.log('🎵 Track subscribed:', track.kind, 'from', participant?.identity || 'unknown');
       if (track.kind === 'audio' && track instanceof RemoteAudioTrack) {
-        // Audio track automatically plays
+        // IMPORTANT: Must call attach() to create audio element and start playback
+        // attach() returns existing element if already attached, or creates a new one
+        const element = track.attach() as HTMLAudioElement;
+        console.log('🔊 Audio track attached for playback from:', participant?.identity);
+
         // Apply output device if set
-        if (this.currentOutputDeviceId) {
-          // Wait a bit for the element to be attached, then set sink ID
-          setTimeout(() => {
-            const element = track.attach() as HTMLAudioElement;
-            if (element && 'setSinkId' in element) {
-              (element as any).setSinkId(this.currentOutputDeviceId!).catch((err: Error) => {
-                console.error('Failed to set sink ID for new track:', err);
-              });
-            }
-          }, 100);
+        if (this.currentOutputDeviceId && element && 'setSinkId' in element) {
+          (element as any).setSinkId(this.currentOutputDeviceId).catch((err: Error) => {
+            console.error('Failed to set sink ID for new track:', err);
+          });
         }
       }
     });
