@@ -37,3 +37,4 @@ logs/
 .env.*.local
 docker-compose.prod.yml
 terraform/
+./client/login_export/
